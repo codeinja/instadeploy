@@ -1,0 +1,11 @@
+{
+  "name": "nginx",
+  "environment": "production",
+  "agent_id": "REPLACED_BY_THE_SCRIPT",
+  "spec": {
+    "type": "IMAGE",
+    "image": "nginx:latest",
+    "services": [{ "name": "web", "port": 80, "public": true }]
+  },
+  "variables": []
+}

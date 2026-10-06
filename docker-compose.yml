@@ -1,0 +1,4 @@
+# Lets you run `docker compose up` from the repo root.
+# The real configuration lives in deploy/docker-compose.yml.
+include:
+  - deploy/docker-compose.yml

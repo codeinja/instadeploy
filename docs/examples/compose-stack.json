@@ -1,0 +1,18 @@
+{
+  "name": "shop",
+  "environment": "production",
+  "agent_id": "<machine id>",
+  "spec": {
+    "type": "COMPOSE",
+    "source": {
+      "kind": "inline",
+      "compose": "services:\n  web:\n    image: nginx:alpine\n  api:\n    image: traefik/whoami\n  postgres:\n    image: postgres:17\n    environment:\n      POSTGRES_PASSWORD: ${DB_PASSWORD}\n    volumes: [pgdata:/var/lib/postgresql/data]\nvolumes:\n  pgdata:\n"
+    },
+    "services": [
+      { "name": "web", "port": 80, "public": true },
+      { "name": "api", "port": 80, "public": true },
+      { "name": "postgres", "public": false }
+    ]
+  },
+  "variables": [{ "key": "DB_PASSWORD", "value": "change-me", "secret": true }]
+}

@@ -1,0 +1,545 @@
+openapi: 3.0.3
+info:
+  title: Insta Deploy API
+  version: 0.2.0
+  description: |
+    Deploy Docker. Get a URL.
+
+    **Authentication.** Accounts and sessions are managed by Better Auth in the dashboard
+    (`POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email` on the dashboard's URL, port 3000).
+    Sign-in returns a `token`; send it to this API as `Authorization: Bearer <token>`.
+    The dashboard itself uses the session cookie.
+
+    The **agent API** (`/api/agent/*`) is used by the Insta Deploy agent with its own token.
+servers:
+  - url: /
+tags:
+  - name: Account
+  - name: Projects
+  - name: Deployments
+  - name: Services & logs
+  - name: Variables & secrets
+  - name: Domains
+  - name: Agents
+  - name: Analysis
+  - name: Agent API
+    description: Used by the agent running on your machine. Not for dashboard use.
+components:
+  securitySchemes:
+    session:
+      type: http
+      scheme: bearer
+      description: Better Auth session token
+    agentToken:
+      type: http
+      scheme: bearer
+      description: Agent token (idt_...)
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    Spec:
+      type: object
+      description: The internal description of a deployment. Never contains secret values.
+      required: [type, services]
+      properties:
+        type: { type: string, enum: [IMAGE, DOCKERFILE, COMPOSE] }
+        image: { type: string, example: "nginx:latest", description: IMAGE only }
+        source:
+          type: object
+          description: DOCKERFILE and COMPOSE
+          properties:
+            kind: { type: string, enum: [upload, git, inline] }
+            upload_id: { type: string, format: uuid }
+            git_url: { type: string, example: "https://github.com/user/my-app" }
+            git_branch: { type: string, example: main }
+            path: { type: string, example: Dockerfile, description: Dockerfile or Compose file inside the project }
+            compose: { type: string, description: "inline Compose YAML" }
+        services:
+          type: array
+          items:
+            type: object
+            required: [name, public]
+            properties:
+              name: { type: string, example: web }
+              port: { type: integer, example: 80 }
+              public: { type: boolean }
+              health_check:
+                type: object
+                properties:
+                  path: { type: string, example: /health }
+                  interval_seconds: { type: integer, example: 30 }
+        volumes:
+          type: array
+          items:
+            type: object
+            properties:
+              source: { type: string, example: postgres-data }
+              target: { type: string, example: /var/lib/postgresql/data }
+              read_only: { type: boolean }
+        restart_policy: { type: string, enum: ["no", always, unless-stopped, on-failure] }
+        cpus: { type: number, example: 1 }
+        memory_mb: { type: integer, example: 512 }
+    Route:
+      type: object
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [GENERATED, CUSTOM] }
+        hostname: { type: string, example: nginx-a81f.apps.example.com }
+        url: { type: string }
+        status: { type: string, enum: [PENDING, CREATING, READY, FAILED, DISABLED] }
+        error: { type: string }
+    Service:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        image: { type: string }
+        port: { type: integer, nullable: true }
+        public: { type: boolean }
+        state: { type: string, example: running }
+        health: { type: string, enum: [HEALTHY, UNHEALTHY, STARTING, NONE] }
+        detected_ports: { type: array, items: { type: integer } }
+        routes: { type: array, items: { $ref: "#/components/schemas/Route" } }
+        stats:
+          nullable: true
+          type: object
+          properties:
+            cpu_percent: { type: number }
+            memory_bytes: { type: integer }
+            memory_limit: { type: integer }
+            net_rx_bytes: { type: integer }
+            net_tx_bytes: { type: integer }
+    Revision:
+      type: object
+      properties:
+        id: { type: string }
+        number: { type: integer }
+        spec: { $ref: "#/components/schemas/Spec" }
+        image_digest: { type: string }
+        git_commit: { type: string }
+        trigger: { type: string, enum: [deploy, redeploy, rollback, auto, config] }
+        rollback_of: { type: integer, nullable: true }
+        status: { type: string }
+        error: { type: string }
+        created_at: { type: string, format: date-time }
+    Deployment:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        project_name: { type: string }
+        agent_id: { type: string }
+        agent_name: { type: string }
+        agent_status: { type: string, enum: [ONLINE, OFFLINE, REVOKED] }
+        name: { type: string }
+        type: { type: string, enum: [IMAGE, DOCKERFILE, COMPOSE] }
+        environment: { type: string, enum: [development, staging, production] }
+        spec: { $ref: "#/components/schemas/Spec" }
+        status: { type: string, enum: [QUEUED, BUILDING, DEPLOYING, RUNNING, STOPPED, FAILED, DELETING] }
+        error: { type: string }
+        auto_deploy: { type: boolean }
+        revision: { $ref: "#/components/schemas/Revision" }
+        services: { type: array, items: { $ref: "#/components/schemas/Service" } }
+        pending_action: { type: string, description: "A queued DEPLOY/STOP/START/RESTART/DELETE, if any" }
+    Project:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        deployments: { type: integer }
+        running: { type: integer }
+        failed: { type: integer }
+    Variable:
+      type: object
+      description: Secret values are never returned (value is empty when secret is true).
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        deployment_id: { type: string, nullable: true }
+        service: { type: string, nullable: true }
+        environment: { type: string, nullable: true }
+        key: { type: string }
+        value: { type: string }
+        secret: { type: boolean }
+    Domain:
+      type: object
+      properties:
+        id: { type: string }
+        hostname: { type: string, example: app.example.com }
+        service_id: { type: string, nullable: true }
+        target: { type: string, nullable: true }
+        status: { type: string, enum: [PENDING, ACTIVE, FAILED] }
+        dns_records:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              name: { type: string }
+              value: { type: string }
+        ssl_status: { type: string, enum: [UNKNOWN, PENDING, VALID, INVALID] }
+        route_status: { type: string, nullable: true }
+    Agent:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [ONLINE, OFFLINE, REVOKED] }
+        last_seen: { type: string, format: date-time, nullable: true }
+        hostname: { type: string }
+        os: { type: string }
+        arch: { type: string }
+        docker_version: { type: string }
+        agent_version: { type: string }
+        deployments: { type: integer }
+        tunnel_ready: { type: boolean }
+        tunnel_error: { type: string }
+    AgentConnect:
+      type: object
+      properties:
+        agent: { $ref: "#/components/schemas/Agent" }
+        token: { type: string, description: Shown only once }
+        command: { type: string, description: docker run command that starts the agent }
+security:
+  - session: []
+paths:
+  /api/me:
+    get:
+      tags: [Account]
+      summary: Current user and server settings
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  name: { type: string }
+                  email: { type: string }
+                  apps_domain: { type: string }
+                  api_url: { type: string }
+                  pangolin_enabled: { type: boolean }
+  /api/activity:
+    get:
+      tags: [Account]
+      summary: Recent activity
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 100 } }
+        - { name: project_id, in: query, schema: { type: string } }
+        - { name: deployment_id, in: query, schema: { type: string } }
+      responses:
+        "200": { description: OK }
+
+  /api/projects:
+    get:
+      tags: [Projects]
+      summary: List projects
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Project" } } } } }
+    post:
+      tags: [Projects]
+      summary: Create a project
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { name: { type: string }, description: { type: string } } } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+  /api/projects/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get: { tags: [Projects], summary: Get a project, responses: { "200": { description: OK } } }
+    patch: { tags: [Projects], summary: Rename / describe a project, responses: { "200": { description: OK } } }
+    delete: { tags: [Projects], summary: Delete an empty project, responses: { "204": { description: Deleted }, "409": { description: Project still has deployments } } }
+
+  /api/deployments:
+    get:
+      tags: [Deployments]
+      summary: List deployments (with services and URLs)
+      parameters:
+        - { name: project_id, in: query, schema: { type: string } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Deployment" } } } } }
+    post:
+      tags: [Deployments]
+      summary: Deploy
+      description: Creates the deployment and its first revision, and queues it for the agent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, name, spec]
+              properties:
+                project_id: { type: string, description: "Defaults to the Default project" }
+                agent_id: { type: string }
+                name: { type: string, example: nginx }
+                environment: { type: string, enum: [development, staging, production], default: production }
+                auto_deploy: { type: boolean, description: Git sources only }
+                spec: { $ref: "#/components/schemas/Spec" }
+                variables:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      key: { type: string }
+                      value: { type: string }
+                      secret: { type: boolean }
+                      service: { type: string }
+            example:
+              agent_id: "..."
+              name: nginx
+              spec: { type: IMAGE, image: "nginx:latest", services: [{ name: web, port: 80, public: true }] }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Deployment" } } } }
+        "400": { description: Invalid, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /api/deployments/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get:
+      tags: [Deployments]
+      summary: Get a deployment
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Deployment" } } } } }
+    patch:
+      tags: [Deployments]
+      summary: Change settings (and optionally deploy them)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                spec: { $ref: "#/components/schemas/Spec" }
+                environment: { type: string }
+                auto_deploy: { type: boolean }
+                deploy: { type: boolean, description: Deploy the new settings now }
+      responses: { "200": { description: OK } }
+    delete:
+      tags: [Deployments]
+      summary: Delete
+      description: Removes public URLs, then the agent removes the containers. `force=true` deletes the records without waiting for the agent.
+      parameters:
+        - { name: delete_volumes, in: query, schema: { type: boolean } }
+        - { name: force, in: query, schema: { type: boolean } }
+      responses:
+        "202": { description: Deleting (status DELETING) }
+        "204": { description: Deleted }
+  /api/deployments/{id}/redeploy:
+    post: { tags: [Deployments], summary: Deploy the current settings again as a new revision, parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: OK } } }
+  /api/deployments/{id}/stop:
+    post: { tags: [Deployments], summary: Stop, parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: OK } } }
+  /api/deployments/{id}/start:
+    post: { tags: [Deployments], summary: Start, parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: OK } } }
+  /api/deployments/{id}/restart:
+    post: { tags: [Deployments], summary: Restart, parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: OK } } }
+  /api/deployments/{id}/revisions:
+    get:
+      tags: [Deployments]
+      summary: Deployment history
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Revision" } } } } } }
+  /api/deployments/{id}/rollback:
+    post:
+      tags: [Deployments]
+      summary: Roll back to an earlier revision
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { revision_id: { type: string } } } } }
+      responses: { "200": { description: OK } }
+  /api/deployments/{id}/routes/retry:
+    post: { tags: [Deployments], summary: Retry failed public URLs, parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: OK } } }
+
+  /api/deployments/{id}/services/{service}:
+    patch:
+      tags: [Services & logs]
+      summary: Make a service public/private, change its port or health check
+      parameters:
+        - { $ref: "#/components/parameters/id" }
+        - { name: service, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                public: { type: boolean }
+                port: { type: integer }
+                health_check: { type: object, properties: { path: { type: string }, interval_seconds: { type: integer } } }
+                clear_health_check: { type: boolean }
+      responses: { "200": { description: OK } }
+  /api/deployments/{id}/services/{service}/logs:
+    get:
+      tags: [Services & logs]
+      summary: Container logs (like docker logs --tail)
+      parameters:
+        - { $ref: "#/components/parameters/id" }
+        - { name: service, in: path, required: true, schema: { type: string } }
+        - { name: tail, in: query, schema: { type: integer, default: 300 } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { lines: { type: array, items: { type: string } } } } } } }
+        "409": { description: The machine is offline }
+  /api/deployments/{id}/logs:
+    get:
+      tags: [Services & logs]
+      summary: Build and deployment logs
+      parameters:
+        - { $ref: "#/components/parameters/id" }
+        - { name: after, in: query, schema: { type: integer }, description: Only lines with a larger id }
+        - { name: revision, in: query, schema: { type: string } }
+      responses: { "200": { description: OK } }
+  /api/deployments/{id}/logs/stream:
+    get:
+      tags: [Services & logs]
+      summary: Build and deployment logs as Server-Sent Events
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses: { "200": { description: text/event-stream } }
+
+  /api/variables:
+    get:
+      tags: [Variables & secrets]
+      summary: List variables of a project or deployment
+      parameters:
+        - { name: project_id, in: query, schema: { type: string } }
+        - { name: deployment_id, in: query, schema: { type: string } }
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Variable" } } } } } }
+    post:
+      tags: [Variables & secrets]
+      summary: Add a variable or secret
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id: { type: string }
+                environment: { type: string, description: Project level only }
+                deployment_id: { type: string }
+                service: { type: string, description: Deployment level only }
+                key: { type: string, example: DATABASE_URL }
+                value: { type: string }
+                secret: { type: boolean }
+      responses: { "201": { description: Created } }
+  /api/variables/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    patch: { tags: [Variables & secrets], summary: Change a value or make it secret, responses: { "200": { description: OK } } }
+    delete: { tags: [Variables & secrets], summary: Delete, responses: { "204": { description: Deleted } } }
+  /api/registries:
+    get: { tags: [Variables & secrets], summary: Private registry credentials (passwords never returned), responses: { "200": { description: OK } } }
+    post:
+      tags: [Variables & secrets]
+      summary: Save registry credentials
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { server: { type: string, example: ghcr.io }, username: { type: string }, password: { type: string } } } } }
+      responses: { "204": { description: Saved } }
+  /api/registries/{id}:
+    delete: { tags: [Variables & secrets], summary: Delete registry credentials, parameters: [{ $ref: "#/components/parameters/id" }], responses: { "204": { description: Deleted } } }
+
+  /api/domains:
+    get:
+      tags: [Domains]
+      summary: Custom domains
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Domain" } } } } } }
+    post:
+      tags: [Domains]
+      summary: Add a custom domain (returns the DNS records to create)
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { hostname: { type: string }, service_id: { type: string } } } } }
+      responses: { "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Domain" } } } } }
+  /api/domains/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    patch:
+      tags: [Domains]
+      summary: Point the domain at another service (or none)
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { service_id: { type: string, nullable: true } } } } }
+      responses: { "200": { description: OK } }
+    delete: { tags: [Domains], summary: Remove the domain, responses: { "204": { description: Deleted } } }
+
+  /api/domains/{id}/verify:
+    post:
+      tags: [Domains]
+      summary: Check the DNS records again now
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: OK }
+        "409": { description: No DNS records found yet }
+  /api/agents:
+    get:
+      tags: [Agents]
+      summary: List machines
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Agent" } } } } } }
+    post:
+      tags: [Agents]
+      summary: Add a machine (returns its token and docker run command once)
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { name: { type: string, example: My Laptop } } } } }
+      responses: { "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/AgentConnect" } } } } }
+  /api/agents/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    patch: { tags: [Agents], summary: Rename, responses: { "200": { description: OK } } }
+    delete: { tags: [Agents], summary: Delete the machine, its deployments' records and public URLs, responses: { "204": { description: Deleted } } }
+  /api/agents/{id}/revoke:
+    post: { tags: [Agents], summary: Revoke the machine's token, parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: OK } } }
+  /api/agents/{id}/token:
+    post:
+      tags: [Agents]
+      summary: Issue a new token (reconnects a revoked machine)
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AgentConnect" } } } } }
+
+  /api/uploads:
+    post:
+      tags: [Analysis]
+      summary: Upload a project ZIP (build context) and get what's inside
+      requestBody:
+        content:
+          multipart/form-data:
+            schema: { type: object, properties: { file: { type: string, format: binary } } }
+      responses: { "201": { description: Uploaded with analysis } }
+  /api/analyze/image:
+    post:
+      tags: [Analysis]
+      summary: Exposed ports and digest of an image (from its registry)
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { image: { type: string, example: "nginx:latest" }, agent_id: { type: string } } } } }
+      responses: { "200": { description: OK } }
+  /api/analyze/compose:
+    post:
+      tags: [Analysis]
+      summary: Services, ports and warnings of a Compose file
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { content: { type: string } } } } }
+      responses: { "200": { description: OK } }
+  /api/analyze/git:
+    post:
+      tags: [Analysis]
+      summary: Resolve a branch and let the agent look inside the repository
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { git_url: { type: string }, git_branch: { type: string }, agent_id: { type: string } } } } }
+      responses: { "200": { description: OK } }
+
+  /api/agent/register:
+    post: { tags: [Agent API], security: [{ agentToken: [] }], summary: Called on startup; returns Pangolin tunnel credentials, responses: { "200": { description: OK } } }
+  /api/agent/heartbeat:
+    post: { tags: [Agent API], security: [{ agentToken: [] }], summary: Machine info and container state/health/stats, responses: { "200": { description: OK } } }
+  /api/agent/commands:
+    get:
+      tags: [Agent API]
+      security: [{ agentToken: [] }]
+      summary: Long-poll for work
+      parameters: [{ name: wait, in: query, schema: { type: integer, maximum: 30 } }]
+      responses: { "200": { description: OK } }
+  /api/agent/tasks/{id}/status:
+    post: { tags: [Agent API], security: [{ agentToken: [] }], summary: Report task progress (RUNNING with a phase, DONE or FAILED), parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: OK } } }
+  /api/agent/deployments/{id}/logs:
+    post: { tags: [Agent API], security: [{ agentToken: [] }], summary: Send build/deploy log lines, parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: OK } } }
+  /api/agent/uploads/{id}:
+    get: { tags: [Agent API], security: [{ agentToken: [] }], summary: Download a build context used by one of this agent's deployments, parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: application/zip } } }

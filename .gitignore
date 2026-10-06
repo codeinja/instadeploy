@@ -1,0 +1,9 @@
+.env
+node_modules/
+.next/
+frontend/next-env.d.ts
+*.tsbuildinfo
+/backend/backend
+/agent/agent
+.DS_Store
+frontend/.data/

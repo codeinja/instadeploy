@@ -1,0 +1,1084 @@
+# The App Store: popular self-hosted apps as Compose templates.
+#
+# Each template is a normal Compose file. ${VARIABLES} come from:
+#   - inputs: asked in the dashboard (generated ones are filled in for you,
+#     and `secret` ones are stored encrypted and hidden from logs)
+#   - INSTA_PUBLIC_URL / INSTA_PUBLIC_HOST: the app's public address
+#     (https://name-xxxx.your-apps-domain), assigned before it starts
+#
+# Rules: no host folders, no host network, no privileged containers
+# (the agent would refuse them). Use named volumes for data.
+#
+# To add an app: copy an entry, check the image's port, and test it.
+
+- id: paperless-ngx
+  name: Paperless-ngx
+  category: Documents
+  icon: paperless-ngx
+  website: https://docs.paperless-ngx.com
+  tagline: Scan, index and archive all your paper documents
+  description: >
+    Turns your physical documents into a searchable online archive with OCR,
+    tags and automatic matching. Runs with PostgreSQL and Redis.
+  public: { service: webserver, port: 8000 }
+  inputs:
+    - { key: PAPERLESS_ADMIN_USER, label: Admin username, default: admin }
+    - { key: PAPERLESS_ADMIN_PASSWORD, label: Admin password, generate: password, secret: true }
+    - { key: TZ, label: Time zone, default: "{tz}" }
+    - { key: PAPERLESS_OCR_LANGUAGE, label: OCR language, default: eng, description: "3-letter code, e.g. eng, deu, fra" }
+    - { key: PAPERLESS_SECRET_KEY, generate: secret, secret: true, hidden: true }
+    - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
+  compose: |
+    services:
+      broker:
+        image: docker.io/library/redis:7
+        restart: unless-stopped
+        volumes:
+          - redisdata:/data
+      db:
+        image: docker.io/library/postgres:17
+        restart: unless-stopped
+        volumes:
+          - pgdata:/var/lib/postgresql/data
+        environment:
+          POSTGRES_DB: paperless
+          POSTGRES_USER: paperless
+          POSTGRES_PASSWORD: ${DB_PASSWORD}
+      webserver:
+        image: ghcr.io/paperless-ngx/paperless-ngx:latest
+        restart: unless-stopped
+        depends_on:
+          - db
+          - broker
+        volumes:
+          - data:/usr/src/paperless/data
+          - media:/usr/src/paperless/media
+          - export:/usr/src/paperless/export
+          - consume:/usr/src/paperless/consume
+        environment:
+          PAPERLESS_REDIS: redis://broker:6379
+          PAPERLESS_DBHOST: db
+          PAPERLESS_DBPASS: ${DB_PASSWORD}
+          PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY}
+          PAPERLESS_URL: ${INSTA_PUBLIC_URL}
+          PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER}
+          PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD}
+          PAPERLESS_TIME_ZONE: ${TZ}
+          PAPERLESS_OCR_LANGUAGE: ${PAPERLESS_OCR_LANGUAGE}
+    volumes:
+      redisdata:
+      pgdata:
+      data:
+      media:
+      export:
+      consume:
+
+- id: immich
+  name: Immich
+  category: Photos & Media
+  icon: immich
+  website: https://immich.app
+  tagline: Self-hosted Google Photos alternative
+  description: >
+    Back up photos and videos from your phone, with face recognition, smart
+    search and shared albums. Needs about 4 GB of RAM; the first start
+    downloads machine-learning models.
+  public: { service: immich-server, port: 2283 }
+  inputs:
+    - { key: TZ, label: Time zone, default: "{tz}" }
+    - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
+  notes: Create your admin account the first time you open it.
+  compose: |
+    services:
+      immich-server:
+        image: ghcr.io/immich-app/immich-server:release
+        restart: unless-stopped
+        volumes:
+          - upload:/data
+        environment:
+          DB_PASSWORD: ${DB_PASSWORD}
+          DB_USERNAME: postgres
+          DB_DATABASE_NAME: immich
+          TZ: ${TZ}
+        depends_on:
+          - redis
+          - database
+      immich-machine-learning:
+        image: ghcr.io/immich-app/immich-machine-learning:release
+        restart: unless-stopped
+        volumes:
+          - model-cache:/cache
+      redis:
+        image: docker.io/valkey/valkey:8
+        restart: unless-stopped
+      database:
+        image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
+        restart: unless-stopped
+        shm_size: 128mb
+        environment:
+          POSTGRES_PASSWORD: ${DB_PASSWORD}
+          POSTGRES_USER: postgres
+          POSTGRES_DB: immich
+          POSTGRES_INITDB_ARGS: --data-checksums
+        volumes:
+          - pgdata:/var/lib/postgresql/data
+    volumes:
+      upload:
+      model-cache:
+      pgdata:
+
+- id: jellyfin
+  name: Jellyfin
+  category: Photos & Media
+  icon: jellyfin
+  website: https://jellyfin.org
+  tagline: Stream your movies, shows and music
+  description: >
+    A free media server for your own collection, with apps for TVs, phones
+    and browsers. Media lives in the "media" volume; to use an existing
+    folder on the machine, allow it on the agent and edit the Compose file.
+  public: { service: jellyfin, port: 8096 }
+  inputs: []
+  compose: |
+    services:
+      jellyfin:
+        image: jellyfin/jellyfin:latest
+        restart: unless-stopped
+        environment:
+          JELLYFIN_PublishedServerUrl: ${INSTA_PUBLIC_URL}
+        volumes:
+          - config:/config
+          - cache:/cache
+          - media:/media
+    volumes:
+      config:
+      cache:
+      media:
+
+- id: nextcloud
+  name: Nextcloud
+  category: Productivity
+  icon: nextcloud
+  website: https://nextcloud.com
+  tagline: Files, calendar and contacts in your own cloud
+  description: >
+    File sync and sharing with a huge app ecosystem (calendar, contacts,
+    office, notes). Runs with MariaDB and Redis.
+  public: { service: app, port: 80 }
+  inputs:
+    - { key: NEXTCLOUD_ADMIN_USER, label: Admin username, default: admin }
+    - { key: NEXTCLOUD_ADMIN_PASSWORD, label: Admin password, generate: password, secret: true }
+    - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
+    - { key: DB_ROOT_PASSWORD, generate: password, secret: true, hidden: true }
+  compose: |
+    services:
+      db:
+        image: mariadb:11
+        restart: unless-stopped
+        command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
+        volumes:
+          - db:/var/lib/mysql
+        environment:
+          MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+          MARIADB_DATABASE: nextcloud
+          MARIADB_USER: nextcloud
+          MARIADB_PASSWORD: ${DB_PASSWORD}
+      redis:
+        image: redis:7-alpine
+        restart: unless-stopped
+      app:
+        image: nextcloud:stable
+        restart: unless-stopped
+        depends_on:
+          - db
+          - redis
+        volumes:
+          - nextcloud:/var/www/html
+        environment:
+          MYSQL_HOST: db
+          MYSQL_DATABASE: nextcloud
+          MYSQL_USER: nextcloud
+          MYSQL_PASSWORD: ${DB_PASSWORD}
+          REDIS_HOST: redis
+          NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER}
+          NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD}
+          NEXTCLOUD_TRUSTED_DOMAINS: ${INSTA_PUBLIC_HOST}
+          OVERWRITEHOST: ${INSTA_PUBLIC_HOST}
+          OVERWRITEPROTOCOL: https
+          TRUSTED_PROXIES: 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+    volumes:
+      db:
+      nextcloud:
+
+- id: vaultwarden
+  name: Vaultwarden
+  category: Security
+  icon: vaultwarden
+  website: https://github.com/dani-garcia/vaultwarden
+  tagline: Password manager compatible with Bitwarden apps
+  description: >
+    A lightweight server for the official Bitwarden apps and browser
+    extensions. Turn sign-ups off after creating your account.
+  public: { service: vaultwarden, port: 80 }
+  inputs:
+    - { key: SIGNUPS_ALLOWED, label: Allow new sign-ups, default: "true", description: "true or false" }
+    - { key: ADMIN_TOKEN, label: Admin panel token, generate: secret, secret: true, description: "Opens /admin" }
+  compose: |
+    services:
+      vaultwarden:
+        image: vaultwarden/server:latest
+        restart: unless-stopped
+        environment:
+          DOMAIN: ${INSTA_PUBLIC_URL}
+          SIGNUPS_ALLOWED: ${SIGNUPS_ALLOWED}
+          ADMIN_TOKEN: ${ADMIN_TOKEN}
+        volumes:
+          - data:/data
+    volumes:
+      data:
+
+- id: uptime-kuma
+  name: Uptime Kuma
+  category: Monitoring
+  icon: uptime-kuma
+  website: https://uptime.kuma.pet
+  tagline: Monitor your websites and get alerts
+  description: >
+    A friendly monitoring tool: HTTP, TCP, ping and more, with status pages
+    and notifications to dozens of services.
+  public: { service: uptime-kuma, port: 3001 }
+  inputs: []
+  notes: Create your admin account the first time you open it.
+  compose: |
+    services:
+      uptime-kuma:
+        image: louislam/uptime-kuma:1
+        restart: unless-stopped
+        volumes:
+          - data:/app/data
+    volumes:
+      data:
+
+- id: n8n
+  name: n8n
+  category: Automation
+  icon: n8n
+  website: https://n8n.io
+  tagline: Workflow automation with 400+ integrations
+  description: >
+    Connect apps and automate workflows visually, with code when you need
+    it. Webhooks use the app's public URL.
+  public: { service: n8n, port: 5678 }
+  inputs:
+    - { key: TZ, label: Time zone, default: "{tz}" }
+    - { key: N8N_ENCRYPTION_KEY, generate: secret, secret: true, hidden: true }
+  compose: |
+    services:
+      n8n:
+        image: n8nio/n8n:latest
+        restart: unless-stopped
+        environment:
+          N8N_HOST: ${INSTA_PUBLIC_HOST}
+          N8N_PROTOCOL: https
+          N8N_PROXY_HOPS: "1"
+          WEBHOOK_URL: ${INSTA_PUBLIC_URL}/
+          N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+          GENERIC_TIMEZONE: ${TZ}
+          TZ: ${TZ}
+        volumes:
+          - data:/home/node/.n8n
+    volumes:
+      data:
+
+- id: open-webui
+  name: Open WebUI + Ollama
+  category: AI
+  icon: open-webui
+  website: https://openwebui.com
+  tagline: ChatGPT-style interface for local AI models
+  description: >
+    Chat with open models (Llama, Mistral, Gemma…) running on your own
+    machine through Ollama. Runs on CPU; pull models from the admin
+    settings. Needs plenty of RAM for larger models.
+  public: { service: open-webui, port: 8080 }
+  inputs:
+    - { key: WEBUI_SECRET_KEY, generate: secret, secret: true, hidden: true }
+  notes: Create your admin account the first time you open it.
+  compose: |
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        restart: unless-stopped
+        volumes:
+          - ollama:/root/.ollama
+      open-webui:
+        image: ghcr.io/open-webui/open-webui:main
+        restart: unless-stopped
+        depends_on:
+          - ollama
+        environment:
+          OLLAMA_BASE_URL: http://ollama:11434
+          WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY}
+        volumes:
+          - open-webui:/app/backend/data
+    volumes:
+      ollama:
+      open-webui:
+
+- id: gitea
+  name: Gitea
+  category: Development
+  icon: gitea
+  website: https://about.gitea.com
+  tagline: Lightweight Git hosting
+  description: >
+    Host Git repositories with issues, pull requests, CI (Actions) and a
+    package registry. Runs with PostgreSQL. Cloning works over HTTPS.
+  public: { service: gitea, port: 3000 }
+  inputs:
+    - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
+  notes: Finish the installation page on first visit (the database is already set up).
+  compose: |
+    services:
+      db:
+        image: postgres:17
+        restart: unless-stopped
+        environment:
+          POSTGRES_USER: gitea
+          POSTGRES_PASSWORD: ${DB_PASSWORD}
+          POSTGRES_DB: gitea
+        volumes:
+          - pgdata:/var/lib/postgresql/data
+      gitea:
+        image: gitea/gitea:latest
+        restart: unless-stopped
+        depends_on:
+          - db
+        environment:
+          USER_UID: "1000"
+          USER_GID: "1000"
+          GITEA__database__DB_TYPE: postgres
+          GITEA__database__HOST: db:5432
+          GITEA__database__NAME: gitea
+          GITEA__database__USER: gitea
+          GITEA__database__PASSWD: ${DB_PASSWORD}
+          GITEA__server__DOMAIN: ${INSTA_PUBLIC_HOST}
+          GITEA__server__ROOT_URL: ${INSTA_PUBLIC_URL}/
+        volumes:
+          - data:/data
+    volumes:
+      pgdata:
+      data:
+
+- id: grafana
+  name: Grafana
+  category: Monitoring
+  icon: grafana
+  website: https://grafana.com
+  tagline: Dashboards for metrics and logs
+  description: Beautiful dashboards for Prometheus, Loki, InfluxDB, PostgreSQL and many more data sources.
+  public: { service: grafana, port: 3000 }
+  inputs:
+    - { key: GF_SECURITY_ADMIN_USER, label: Admin username, default: admin }
+    - { key: GF_SECURITY_ADMIN_PASSWORD, label: Admin password, generate: password, secret: true }
+  compose: |
+    services:
+      grafana:
+        image: grafana/grafana:latest
+        restart: unless-stopped
+        environment:
+          GF_SERVER_ROOT_URL: ${INSTA_PUBLIC_URL}
+          GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER}
+          GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+        volumes:
+          - data:/var/lib/grafana
+    volumes:
+      data:
+
+- id: ghost
+  name: Ghost
+  category: Websites
+  icon: ghost
+  website: https://ghost.org
+  tagline: Publishing platform for blogs and newsletters
+  description: Write, publish and send newsletters with a clean editor. Runs with MySQL.
+  public: { service: ghost, port: 2368 }
+  inputs:
+    - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
+  notes: Open /ghost on your site to create the admin account.
+  compose: |
+    services:
+      db:
+        image: mysql:8.0
+        restart: unless-stopped
+        environment:
+          MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+          MYSQL_DATABASE: ghost
+        volumes:
+          - db:/var/lib/mysql
+      ghost:
+        image: ghost:5-alpine
+        restart: unless-stopped
+        depends_on:
+          - db
+        environment:
+          url: ${INSTA_PUBLIC_URL}
+          database__client: mysql
+          database__connection__host: db
+          database__connection__user: root
+          database__connection__password: ${DB_PASSWORD}
+          database__connection__database: ghost
+        volumes:
+          - content:/var/lib/ghost/content
+    volumes:
+      db:
+      content:
+
+- id: wordpress
+  name: WordPress
+  category: Websites
+  icon: wordpress
+  website: https://wordpress.org
+  tagline: The world's most popular website builder
+  description: Blogs, business sites and online shops with thousands of themes and plugins. Runs with MariaDB.
+  public: { service: wordpress, port: 80 }
+  inputs:
+    - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
+  notes: Choose your site title and admin account on first visit.
+  compose: |
+    services:
+      db:
+        image: mariadb:11
+        restart: unless-stopped
+        environment:
+          MARIADB_DATABASE: wordpress
+          MARIADB_USER: wordpress
+          MARIADB_PASSWORD: ${DB_PASSWORD}
+          MARIADB_RANDOM_ROOT_PASSWORD: "1"
+        volumes:
+          - db:/var/lib/mysql
+      wordpress:
+        image: wordpress:latest
+        restart: unless-stopped
+        depends_on:
+          - db
+        environment:
+          WORDPRESS_DB_HOST: db
+          WORDPRESS_DB_USER: wordpress
+          WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+          WORDPRESS_DB_NAME: wordpress
+          # Behind Pangolin the site is served over HTTPS.
+          WORDPRESS_CONFIG_EXTRA: |
+            if (isset($$_SERVER['HTTP_X_FORWARDED_PROTO']) && $$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { $$_SERVER['HTTPS'] = 'on'; }
+        volumes:
+          - wordpress:/var/www/html
+    volumes:
+      db:
+      wordpress:
+
+- id: mealie
+  name: Mealie
+  category: Home
+  icon: mealie
+  website: https://mealie.io
+  tagline: Recipe manager and meal planner
+  description: Import recipes from any website, plan meals and build shopping lists for the household.
+  public: { service: mealie, port: 9000 }
+  inputs:
+    - { key: TZ, label: Time zone, default: "{tz}" }
+  notes: "Default login: changeme@example.com / MyPassword (change it right away)."
+  compose: |
+    services:
+      mealie:
+        image: ghcr.io/mealie-recipes/mealie:latest
+        restart: unless-stopped
+        environment:
+          BASE_URL: ${INSTA_PUBLIC_URL}
+          ALLOW_SIGNUP: "false"
+          TZ: ${TZ}
+        volumes:
+          - data:/app/data
+    volumes:
+      data:
+
+- id: navidrome
+  name: Navidrome
+  category: Photos & Media
+  icon: navidrome
+  website: https://www.navidrome.org
+  tagline: Your music collection, streamed anywhere
+  description: A modern music server compatible with Subsonic apps. Put your music in the "music" volume.
+  public: { service: navidrome, port: 4533 }
+  inputs: []
+  notes: Create your admin account the first time you open it.
+  compose: |
+    services:
+      navidrome:
+        image: deluan/navidrome:latest
+        restart: unless-stopped
+        volumes:
+          - data:/data
+          - music:/music:ro
+    volumes:
+      data:
+      music:
+
+- id: audiobookshelf
+  name: Audiobookshelf
+  category: Photos & Media
+  icon: audiobookshelf
+  website: https://www.audiobookshelf.org
+  tagline: Audiobook and podcast server
+  description: Stream audiobooks and podcasts with progress sync and mobile apps.
+  public: { service: audiobookshelf, port: 80 }
+  inputs: []
+  notes: Create your admin account the first time you open it.
+  compose: |
+    services:
+      audiobookshelf:
+        image: ghcr.io/advplyr/audiobookshelf:latest
+        restart: unless-stopped
+        volumes:
+          - config:/config
+          - metadata:/metadata
+          - audiobooks:/audiobooks
+          - podcasts:/podcasts
+    volumes:
+      config:
+      metadata:
+      audiobooks:
+      podcasts:
+
+- id: freshrss
+  name: FreshRSS
+  category: Productivity
+  icon: freshrss
+  website: https://freshrss.org
+  tagline: Fast, self-hosted RSS reader
+  description: Follow websites and news feeds in one place, with apps and browser extensions.
+  public: { service: freshrss, port: 80 }
+  inputs:
+    - { key: TZ, label: Time zone, default: "{tz}" }
+  notes: Finish the setup wizard on first visit.
+  compose: |
+    services:
+      freshrss:
+        image: freshrss/freshrss:latest
+        restart: unless-stopped
+        environment:
+          TZ: ${TZ}
+          CRON_MIN: "*/20"
+          TRUSTED_PROXY: 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+        volumes:
+          - data:/var/www/FreshRSS/data
+          - extensions:/var/www/FreshRSS/extensions
+    volumes:
+      data:
+      extensions:
+
+- id: actual
+  name: Actual Budget
+  category: Finance
+  icon: actual-budget
+  website: https://actualbudget.org
+  tagline: Privacy-first personal budgeting
+  description: Envelope-style budgeting with bank sync options, synced across your devices.
+  public: { service: actual, port: 5006 }
+  inputs: []
+  compose: |
+    services:
+      actual:
+        image: actualbudget/actual-server:latest
+        restart: unless-stopped
+        volumes:
+          - data:/data
+    volumes:
+      data:
+
+- id: stirling-pdf
+  name: Stirling PDF
+  category: Tools
+  icon: stirling-pdf
+  website: https://www.stirlingpdf.com
+  tagline: Every PDF tool you need, locally
+  description: Merge, split, convert, compress, sign and OCR PDFs, without uploading them anywhere else.
+  public: { service: stirling-pdf, port: 8080 }
+  inputs: []
+  compose: |
+    services:
+      stirling-pdf:
+        image: stirlingtools/stirling-pdf:latest
+        restart: unless-stopped
+        environment:
+          DOCKER_ENABLE_SECURITY: "false"
+        volumes:
+          - configs:/configs
+    volumes:
+      configs:
+
+- id: it-tools
+  name: IT-Tools
+  category: Tools
+  icon: it-tools
+  website: https://it-tools.tech
+  tagline: Handy tools for developers
+  description: Converters, generators, encoders, network calculators and dozens more small developer utilities.
+  public: { service: it-tools, port: 80 }
+  inputs: []
+  compose: |
+    services:
+      it-tools:
+        image: corentinth/it-tools:latest
+        restart: unless-stopped
+
+- id: excalidraw
+  name: Excalidraw
+  category: Tools
+  icon: excalidraw
+  website: https://excalidraw.com
+  tagline: Hand-drawn style whiteboard
+  description: Sketch diagrams and wireframes that look hand-drawn. Drawings are kept in your browser.
+  public: { service: excalidraw, port: 80 }
+  inputs: []
+  compose: |
+    services:
+      excalidraw:
+        image: excalidraw/excalidraw:latest
+        restart: unless-stopped
+
+- id: memos
+  name: Memos
+  category: Productivity
+  icon: memos
+  website: https://usememos.com
+  tagline: Lightweight notes and memos
+  description: A quick, Markdown-friendly place for notes, ideas and snippets.
+  public: { service: memos, port: 5230 }
+  inputs: []
+  notes: Create your admin account the first time you open it.
+  compose: |
+    services:
+      memos:
+        image: neosmemo/memos:stable
+        restart: unless-stopped
+        volumes:
+          - data:/var/opt/memos
+    volumes:
+      data:
+
+- id: linkding
+  name: linkding
+  category: Productivity
+  icon: linkding
+  website: https://linkding.link
+  tagline: Minimal bookmark manager
+  description: Save, tag and search bookmarks, with browser extensions and an API.
+  public: { service: linkding, port: 9090 }
+  inputs:
+    - { key: LD_SUPERUSER_NAME, label: Admin username, default: admin }
+    - { key: LD_SUPERUSER_PASSWORD, label: Admin password, generate: password, secret: true }
+  compose: |
+    services:
+      linkding:
+        image: sissbruecker/linkding:latest
+        restart: unless-stopped
+        environment:
+          LD_SUPERUSER_NAME: ${LD_SUPERUSER_NAME}
+          LD_SUPERUSER_PASSWORD: ${LD_SUPERUSER_PASSWORD}
+          LD_CSRF_TRUSTED_ORIGINS: ${INSTA_PUBLIC_URL}
+        volumes:
+          - data:/etc/linkding/data
+    volumes:
+      data:
+
+- id: homepage
+  name: Homepage
+  category: Dashboards
+  icon: homepage
+  website: https://gethomepage.dev
+  tagline: A start page for all your services
+  description: A fast, customizable dashboard with widgets for your apps, bookmarks and search. Configure it with YAML files in the config volume.
+  public: { service: homepage, port: 3000 }
+  inputs: []
+  compose: |
+    services:
+      homepage:
+        image: ghcr.io/gethomepage/homepage:latest
+        restart: unless-stopped
+        environment:
+          HOMEPAGE_ALLOWED_HOSTS: ${INSTA_PUBLIC_HOST}
+        volumes:
+          - config:/app/config
+    volumes:
+      config:
+
+- id: code-server
+  name: VS Code (code-server)
+  category: Development
+  icon: visual-studio-code
+  website: https://coder.com/docs/code-server
+  tagline: VS Code in your browser
+  description: A full VS Code editor running on your machine, reachable from any browser.
+  public: { service: code-server, port: 8443 }
+  inputs:
+    - { key: PASSWORD, label: Password, generate: password, secret: true }
+    - { key: TZ, label: Time zone, default: "{tz}" }
+  compose: |
+    services:
+      code-server:
+        image: lscr.io/linuxserver/code-server:latest
+        restart: unless-stopped
+        environment:
+          PUID: "1000"
+          PGID: "1000"
+          TZ: ${TZ}
+          PASSWORD: ${PASSWORD}
+        volumes:
+          - config:/config
+    volumes:
+      config:
+
+- id: umami
+  name: Umami
+  category: Analytics
+  icon: umami
+  website: https://umami.is
+  tagline: Simple, privacy-friendly web analytics
+  description: A Google Analytics alternative without cookies. Runs with PostgreSQL.
+  public: { service: umami, port: 3000 }
+  inputs:
+    - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
+    - { key: APP_SECRET, generate: secret, secret: true, hidden: true }
+  notes: "Default login: admin / umami (change it right away)."
+  compose: |
+    services:
+      db:
+        image: postgres:17-alpine
+        restart: unless-stopped
+        environment:
+          POSTGRES_DB: umami
+          POSTGRES_USER: umami
+          POSTGRES_PASSWORD: ${DB_PASSWORD}
+        volumes:
+          - pgdata:/var/lib/postgresql/data
+      umami:
+        image: ghcr.io/umami-software/umami:postgresql-latest
+        restart: unless-stopped
+        depends_on:
+          - db
+        environment:
+          DATABASE_URL: postgresql://umami:${DB_PASSWORD}@db:5432/umami
+          APP_SECRET: ${APP_SECRET}
+    volumes:
+      pgdata:
+
+- id: photoprism
+  name: PhotoPrism
+  category: Photos & Media
+  icon: photoprism
+  website: https://www.photoprism.app
+  tagline: AI-powered photo library
+  description: Browse, organize and share your photo collection with automatic tagging and maps. Runs with MariaDB.
+  public: { service: photoprism, port: 2342 }
+  inputs:
+    - { key: PHOTOPRISM_ADMIN_PASSWORD, label: Admin password (user "admin"), generate: password, secret: true }
+    - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
+  compose: |
+    services:
+      mariadb:
+        image: mariadb:11
+        restart: unless-stopped
+        command: --innodb-buffer-pool-size=512M --transaction-isolation=READ-COMMITTED --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+        environment:
+          MARIADB_DATABASE: photoprism
+          MARIADB_USER: photoprism
+          MARIADB_PASSWORD: ${DB_PASSWORD}
+          MARIADB_RANDOM_ROOT_PASSWORD: "1"
+        volumes:
+          - db:/var/lib/mysql
+      photoprism:
+        image: photoprism/photoprism:latest
+        restart: unless-stopped
+        depends_on:
+          - mariadb
+        environment:
+          PHOTOPRISM_ADMIN_USER: admin
+          PHOTOPRISM_ADMIN_PASSWORD: ${PHOTOPRISM_ADMIN_PASSWORD}
+          PHOTOPRISM_SITE_URL: ${INSTA_PUBLIC_URL}/
+          PHOTOPRISM_DATABASE_DRIVER: mysql
+          PHOTOPRISM_DATABASE_SERVER: mariadb:3306
+          PHOTOPRISM_DATABASE_NAME: photoprism
+          PHOTOPRISM_DATABASE_USER: photoprism
+          PHOTOPRISM_DATABASE_PASSWORD: ${DB_PASSWORD}
+        volumes:
+          - originals:/photoprism/originals
+          - storage:/photoprism/storage
+    volumes:
+      db:
+      originals:
+      storage:
+
+- id: kavita
+  name: Kavita
+  category: Photos & Media
+  icon: kavita
+  website: https://www.kavitareader.com
+  tagline: Reader for manga, comics and books
+  description: Read and organize ebooks, comics and manga in the browser. Put your library in the "library" volume.
+  public: { service: kavita, port: 5000 }
+  inputs: []
+  notes: Create your admin account the first time you open it.
+  compose: |
+    services:
+      kavita:
+        image: jvmilazz0/kavita:latest
+        restart: unless-stopped
+        volumes:
+          - config:/kavita/config
+          - library:/library
+    volumes:
+      config:
+      library:
+
+- id: syncthing
+  name: Syncthing
+  category: Files
+  icon: syncthing
+  website: https://syncthing.net
+  tagline: Continuous file synchronization
+  description: >
+    Keep folders in sync between devices, peer to peer. The web UI is
+    public, so set a GUI password right away. Syncing uses Syncthing's relays.
+  public: { service: syncthing, port: 8384 }
+  inputs: []
+  compose: |
+    services:
+      syncthing:
+        image: syncthing/syncthing:latest
+        restart: unless-stopped
+        volumes:
+          - data:/var/syncthing
+    volumes:
+      data:
+
+- id: qbittorrent
+  name: qBittorrent
+  category: Files
+  icon: qbittorrent
+  website: https://www.qbittorrent.org
+  tagline: Torrent client with a web interface
+  description: Download torrents on your machine from anywhere. The first password is printed in the container logs.
+  public: { service: qbittorrent, port: 8080 }
+  inputs:
+    - { key: TZ, label: Time zone, default: "{tz}" }
+  compose: |
+    services:
+      qbittorrent:
+        image: lscr.io/linuxserver/qbittorrent:latest
+        restart: unless-stopped
+        environment:
+          PUID: "1000"
+          PGID: "1000"
+          TZ: ${TZ}
+          WEBUI_PORT: "8080"
+        volumes:
+          - config:/config
+          - downloads:/downloads
+    volumes:
+      config:
+      downloads:
+
+- id: filebrowser
+  name: File Browser
+  category: Files
+  icon: file-browser
+  website: https://filebrowser.org
+  tagline: Web file manager
+  description: Upload, download, preview and share files from the "files" volume. The first admin password is printed in the container logs.
+  public: { service: filebrowser, port: 80 }
+  inputs: []
+  compose: |
+    services:
+      filebrowser:
+        image: filebrowser/filebrowser:latest
+        restart: unless-stopped
+        volumes:
+          - files:/srv
+          - database:/database
+          - config:/config
+    volumes:
+      files:
+      database:
+      config:
+
+# ------------------------------------------------------------ utilities
+
+- id: postgres-adminer
+  name: PostgreSQL + Adminer
+  category: Databases
+  icon: postgresql
+  website: https://www.postgresql.org
+  tagline: PostgreSQL database with a web admin
+  description: >
+    A PostgreSQL 17 database with Adminer to browse and edit it in the
+    browser. The database itself stays private.
+  public: { service: adminer, port: 8080 }
+  inputs:
+    - { key: POSTGRES_USER, label: Database user, default: postgres }
+    - { key: POSTGRES_PASSWORD, label: Database password, generate: password, secret: true }
+    - { key: POSTGRES_DB, label: Database name, default: app }
+  notes: In Adminer, choose PostgreSQL and use server "db".
+  compose: |
+    services:
+      db:
+        image: postgres:17
+        restart: unless-stopped
+        environment:
+          POSTGRES_USER: ${POSTGRES_USER}
+          POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+          POSTGRES_DB: ${POSTGRES_DB}
+        volumes:
+          - pgdata:/var/lib/postgresql/data
+      adminer:
+        image: adminer:latest
+        restart: unless-stopped
+        environment:
+          ADMINER_DEFAULT_SERVER: db
+    volumes:
+      pgdata:
+
+- id: mariadb-adminer
+  name: MariaDB + Adminer
+  category: Databases
+  icon: mariadb
+  website: https://mariadb.org
+  tagline: MySQL-compatible database with a web admin
+  description: A MariaDB 11 database with Adminer to browse and edit it. The database stays private.
+  public: { service: adminer, port: 8080 }
+  inputs:
+    - { key: MARIADB_USER, label: Database user, default: app }
+    - { key: MARIADB_PASSWORD, label: Database password, generate: password, secret: true }
+    - { key: MARIADB_DATABASE, label: Database name, default: app }
+    - { key: MARIADB_ROOT_PASSWORD, generate: password, secret: true, hidden: true }
+  notes: In Adminer, use server "db".
+  compose: |
+    services:
+      db:
+        image: mariadb:11
+        restart: unless-stopped
+        environment:
+          MARIADB_USER: ${MARIADB_USER}
+          MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+          MARIADB_DATABASE: ${MARIADB_DATABASE}
+          MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+        volumes:
+          - db:/var/lib/mysql
+      adminer:
+        image: adminer:latest
+        restart: unless-stopped
+        environment:
+          ADMINER_DEFAULT_SERVER: db
+    volumes:
+      db:
+
+- id: mongo-express
+  name: MongoDB + Mongo Express
+  category: Databases
+  icon: mongodb
+  website: https://www.mongodb.com
+  tagline: MongoDB with a web admin
+  description: A MongoDB 8 database with Mongo Express to browse collections. The database stays private.
+  public: { service: mongo-express, port: 8081 }
+  inputs:
+    - { key: MONGO_PASSWORD, label: Database password (user "root"), generate: password, secret: true }
+    - { key: ME_PASSWORD, label: Mongo Express password (user "admin"), generate: password, secret: true }
+  compose: |
+    services:
+      mongo:
+        image: mongo:8
+        restart: unless-stopped
+        environment:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+        volumes:
+          - data:/data/db
+      mongo-express:
+        image: mongo-express:latest
+        restart: unless-stopped
+        depends_on:
+          - mongo
+        environment:
+          ME_CONFIG_MONGODB_URL: mongodb://root:${MONGO_PASSWORD}@mongo:27017/
+          ME_CONFIG_BASICAUTH_USERNAME: admin
+          ME_CONFIG_BASICAUTH_PASSWORD: ${ME_PASSWORD}
+    volumes:
+      data:
+
+- id: redis-insight
+  name: Redis + Redis Insight
+  category: Databases
+  icon: redis
+  website: https://redis.io
+  tagline: Redis with a visual browser
+  description: A Redis 7 server with Redis Insight to explore keys and run commands. Redis stays private.
+  public: { service: redisinsight, port: 5540 }
+  inputs: []
+  notes: In Redis Insight, add a database with host "redis" and port 6379.
+  compose: |
+    services:
+      redis:
+        image: redis:7
+        restart: unless-stopped
+        volumes:
+          - data:/data
+      redisinsight:
+        image: redis/redisinsight:latest
+        restart: unless-stopped
+        volumes:
+          - insight:/data
+    volumes:
+      data:
+      insight:
+
+- id: rabbitmq
+  name: RabbitMQ
+  category: Databases
+  icon: rabbitmq
+  website: https://www.rabbitmq.com
+  tagline: Message broker with management UI
+  description: A RabbitMQ broker with its management console. AMQP stays private to the project.
+  public: { service: rabbitmq, port: 15672 }
+  inputs:
+    - { key: RABBITMQ_DEFAULT_USER, label: Admin user, default: admin }
+    - { key: RABBITMQ_DEFAULT_PASS, label: Admin password, generate: password, secret: true }
+  compose: |
+    services:
+      rabbitmq:
+        image: rabbitmq:4-management
+        restart: unless-stopped
+        environment:
+          RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+          RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+        volumes:
+          - data:/var/lib/rabbitmq
+    volumes:
+      data:
+
+- id: nginx
+  name: Nginx (static site)
+  category: Websites
+  icon: nginx
+  website: https://nginx.org
+  tagline: A web server for static sites
+  description: Serves files from the "html" volume. A quick way to see Insta Deploy work end to end.
+  public: { service: nginx, port: 80 }
+  inputs: []
+  compose: |
+    services:
+      nginx:
+        image: nginx:alpine
+        restart: unless-stopped
+        volumes:
+          - html:/usr/share/nginx/html
+    volumes:
+      html:

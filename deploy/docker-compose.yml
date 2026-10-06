@@ -1,0 +1,100 @@
+# Insta Deploy: dashboard + API + database.
+#
+#   docker compose up -d --build      (from the repo root)
+#
+# Then open http://localhost:3000, create your account, and the setup
+# wizard walks you through the rest. No configuration file is needed:
+# secrets are generated on first start and kept in the volumes below, and
+# Pangolin is connected from the dashboard.
+#
+# Optional settings can go in ../.env (see ../.env.example).
+#
+# Pangolin isn't part of this file: use Pangolin Cloud, or host it on a
+# public server (see docs/pangolin.md).
+
+x-env: &env
+  DATABASE_URL: postgres://insta:insta@postgres:5432/insta?sslmode=disable
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: insta
+      POSTGRES_PASSWORD: insta
+      POSTGRES_DB: insta
+    ports:
+      - "127.0.0.1:5432:5432" # localhost only: the DB has default credentials
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U insta -d insta"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # Applies database migrations, then exits.
+  migrate:
+    build: ../backend
+    command: ["migrate"]
+    environment: *env
+    env_file:
+      - path: ../.env
+        required: false
+    volumes:
+      - backend-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build: ../backend
+    environment: *env
+    env_file:
+      - path: ../.env
+        required: false
+    volumes:
+      - backend-data:/data
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  frontend:
+    build: ../frontend
+    environment:
+      <<: *env
+      BACKEND_URL: http://backend:8080
+      AUTH_SECRET_FILE: /data/auth-secret
+    env_file:
+      - path: ../.env
+        required: false
+    volumes:
+      - frontend-data:/data
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  # Builds the agent image (insta-deploy/agent:latest) used by the
+  # "connect a machine" command, then exits. It doesn't run an agent: that's
+  # started on each machine with the command the dashboard shows.
+  agent-image:
+    build: ../agent
+    image: insta-deploy/agent:latest
+    entrypoint: ["true"]
+    restart: "no"
+
+volumes:
+  pgdata:
+  # The secrets encryption key and uploaded build contexts.
+  # Back this up together with pgdata.
+  backend-data:
+  frontend-data:
