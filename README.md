@@ -91,7 +91,7 @@ Your machine never opens a port: traffic arrives through an outbound tunnel powe
 > **Requires:** Docker with Compose v2.24+
 
 ```bash
-git clone <repo-url> insta-deploy && cd insta-deploy
+git clone https://github.com/codeinja/instadeploy.git insta-deploy && cd insta-deploy
 docker compose up -d --build
 ```
 
