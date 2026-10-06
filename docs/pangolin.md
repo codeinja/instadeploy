@@ -35,6 +35,19 @@ Once connected, you never need to touch Pangolin again:
    NS  apps  ns3.pangolin-ns.net
    ```
 
+   Where to add them at common DNS providers (use **Name/Host** `apps` and add one NS record per nameserver):
+
+   | Provider | Where |
+   | --- | --- |
+   | Cloudflare | DNS → Records → Add record → Type **NS** |
+   | GoDaddy | Domains → DNS → Add New Record → Type **NS** (don't use *Change Nameservers*) |
+   | Namecheap | Domain List → Manage → Advanced DNS → Add New Record → **NS Record** |
+   | AWS Route 53 | Hosted zones → your domain → Create record → Type **NS** (all three values, one per line) |
+   | Squarespace (Google Domains) | DNS → DNS Settings → Custom records → Type **NS** |
+   | Hostinger | DNS / Nameservers → DNS records → Type **NS** |
+
+   Remove any existing A, AAAA or CNAME record for `apps` first, and never change the nameservers of the whole domain. Check with `dig NS apps.example.com +short @1.1.1.1`, which should list the three Pangolin nameservers. The setup guide has the same instructions with copy buttons.
+
    Wait until the domain shows **Verified**. Delegation lets every new deployment hostname work instantly, under one wildcard certificate.
 
 3. **Create an API key** under **API Keys** with the [permissions below](#api-key-permissions).

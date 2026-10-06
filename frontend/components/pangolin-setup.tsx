@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PangolinLimits } from "@/components/pangolin-limits";
+import { NsRecordsGuide } from "@/components/ns-records-guide";
 import { Badge } from "@/components/ui/badge";
 
 const CLOUD = {
@@ -166,6 +167,7 @@ export function PangolinSetup({
               the NS records Pangolin shows, then wait until the domain is{" "}
               <b>Verified</b>. Every app then gets its own address
               automatically.
+              <NsRecordsGuide />
             </Step>
           </>
         ) : (
