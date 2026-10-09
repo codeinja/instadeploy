@@ -54,25 +54,28 @@ type Task struct {
 }
 
 type Deployment struct {
-	ID            string         `json:"id"`
-	Name          string         `json:"name"`
-	Type          string         `json:"type"` // IMAGE, DOCKERFILE, COMPOSE
-	Environment   string         `json:"environment"`
-	RevisionID    string         `json:"revision_id"`
-	Revision      int            `json:"revision"`
-	ContainerName string         `json:"container_name"`
-	Network       string         `json:"network"`
-	Image         string         `json:"image"`
-	BuildTag      string         `json:"build_tag"`
-	ReuseImage    string         `json:"reuse_image"`
-	Source        *Source        `json:"source"`
-	Services      []Service      `json:"services"`
-	Volumes       []Volume       `json:"volumes"`
-	RestartPolicy string         `json:"restart_policy"`
-	CPUs          float64        `json:"cpus"`
-	MemoryMB      int            `json:"memory_mb"`
-	RegistryAuths []RegistryAuth `json:"registry_auths"`
-	DeleteVolumes bool           `json:"delete_volumes"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Type          string `json:"type"` // IMAGE, DOCKERFILE, COMPOSE
+	Environment   string `json:"environment"`
+	RevisionID    string `json:"revision_id"`
+	Revision      int    `json:"revision"`
+	ContainerName string `json:"container_name"`
+	Network       string `json:"network"`
+	// ProjectNetwork is private to one project and environment; empty from older
+	// backends (no project network).
+	ProjectNetwork string         `json:"project_network"`
+	Image          string         `json:"image"`
+	BuildTag       string         `json:"build_tag"`
+	ReuseImage     string         `json:"reuse_image"`
+	Source         *Source        `json:"source"`
+	Services       []Service      `json:"services"`
+	Volumes        []Volume       `json:"volumes"`
+	RestartPolicy  string         `json:"restart_policy"`
+	CPUs           float64        `json:"cpus"`
+	MemoryMB       int            `json:"memory_mb"`
+	RegistryAuths  []RegistryAuth `json:"registry_auths"`
+	DeleteVolumes  bool           `json:"delete_volumes"`
 }
 
 type Source struct {
@@ -86,12 +89,14 @@ type Source struct {
 }
 
 type Service struct {
-	Name        string            `json:"name"`
-	Port        int               `json:"port"`
-	Public      bool              `json:"public"`
-	Alias       string            `json:"alias"`
-	Env         map[string]string `json:"env"`
-	HealthCheck *HealthCheck      `json:"health_check"`
+	Name   string `json:"name"`
+	Port   int    `json:"port"`
+	Public bool   `json:"public"`
+	Alias  string `json:"alias"`
+	// Names on the project network, e.g. "iris" or "legion.legion".
+	ProjectAliases []string          `json:"project_aliases"`
+	Env            map[string]string `json:"env"`
+	HealthCheck    *HealthCheck      `json:"health_check"`
 }
 
 type HealthCheck struct {

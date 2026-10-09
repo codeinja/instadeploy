@@ -321,6 +321,31 @@ func transformCompose(p composeProject, d *Deployment) error {
 			svc["networks"] = networks
 			anyPublic = true
 		}
+
+		// Every service also joins the project network, so the project's other
+		// deployments reach it privately as "<service>.<deployment>".
+		if d.ProjectNetwork != "" {
+			if mode, _ := svc["network_mode"].(string); mode == "" {
+				aliases := want.ProjectAliases
+				if len(aliases) == 0 {
+					aliases = []string{strings.ToLower(name) + "." + d.Name}
+				}
+				networks, _ := svc["networks"].(map[string]any)
+				if networks == nil {
+					networks = map[string]any{"default": nil}
+				}
+				networks[d.ProjectNetwork] = map[string]any{"aliases": aliases}
+				svc["networks"] = networks
+			}
+		}
+	}
+	if d.ProjectNetwork != "" {
+		nets, _ := p["networks"].(map[string]any)
+		if nets == nil {
+			nets = map[string]any{}
+		}
+		nets[d.ProjectNetwork] = map[string]any{"name": d.ProjectNetwork, "external": true}
+		p["networks"] = nets
 	}
 	if anyPublic {
 		nets, _ := p["networks"].(map[string]any)

@@ -66,7 +66,7 @@ Build and run your own code.
 
 Provide the project as pasted YAML (or an opened `compose.yaml`), or a Git repository (Compose file plus Dockerfiles and config).
 
-Insta Deploy lists every service with its image or build folder and detected ports. **No service is public until you switch it on.** Each public service gets its own URL (`<name>-<service>-xxxx.<apps domain>`), and the others are reachable only from inside the project, by service name.
+Insta Deploy lists every service with its image or build folder and detected ports. **No service is public until you switch it on.** Each public service gets its own URL (`<name>-<service>-xxxx.<apps domain>`), and the others are reachable only privately: by service name within the deployment, and from the project's other deployments as `<service>.<deployment>` (see [Private network between deployments](#private-network-between-deployments)).
 
 How it differs from plain `docker compose up`:
 
@@ -81,6 +81,17 @@ How it differs from plain `docker compose up`:
 | `${VAR}` | Filled from your Insta Deploy variables (and the project's `.env`) |
 
 Changing which services are public triggers a redeploy, so services can join or leave the tunnel network.
+
+## Private network between deployments
+
+Deployments in the same project and environment share a private network, so separate deployments can call each other without being public. Other projects, and other environments of the same project, can't reach it.
+
+| Deployment | Private address |
+| --- | --- |
+| Docker image, Dockerfile or `docker run` | `<deployment>` (e.g. `http://iris:8090`) |
+| Docker Compose service | `<service>.<deployment>` (e.g. `http://legion.legion:8081`, `postgres.legion:5432`) |
+
+Use the container's own port; nothing is published on the machine. Each service's address is shown on the **Services** tab. Every service joins, including databases, so protect them with passwords as usual. Deployments only share the network on the same agent (machine), and a deployment joins it on its next deploy.
 
 ## Variables and secrets
 

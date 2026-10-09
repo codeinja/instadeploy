@@ -182,6 +182,15 @@ func (a *Agent) deployContainer(ctx context.Context, d *Deployment, logs *logShi
 	if err != nil {
 		return nil, userErr("Could not create the container: %v", err)
 	}
+	if d.ProjectNetwork != "" {
+		// Reachable by the project's other deployments as svc.ProjectAliases.
+		if err := a.docker.EnsureNetwork(ctx, d.ProjectNetwork); err != nil {
+			return nil, userErr("Could not create the project network: %v", err)
+		}
+		if err := a.docker.ConnectNetworkAs(ctx, d.ProjectNetwork, id, svc.ProjectAliases); err != nil {
+			return nil, userErr("Could not join the project network: %v", err)
+		}
+	}
 	if err := a.docker.StartContainer(ctx, id); err != nil {
 		return nil, userErr("The container could not be started: %v", err)
 	}
@@ -323,6 +332,13 @@ func (a *Agent) deployCompose(ctx context.Context, d *Deployment, logs *logShipp
 	}
 	if !a.hostMountOK && usesRelativeBinds(projectDir, file) {
 		return nil, userErr("This Compose file mounts files from the project, which requires the agent to be started with -v /var/lib/insta-deploy:/var/lib/insta-deploy. Re-run the agent with the command from the Agents page.")
+	}
+
+	if d.ProjectNetwork != "" {
+		// Compose joins it as an external network (see transformCompose).
+		if err := a.docker.EnsureNetwork(ctx, d.ProjectNetwork); err != nil {
+			return nil, userErr("Could not create the project network: %v", err)
+		}
 	}
 
 	logs.Deploy("Reading " + file + "...")
@@ -544,6 +560,10 @@ func (a *Agent) remove(ctx context.Context, d *Deployment) error {
 				}
 			}
 		}
+	}
+	if d.ProjectNetwork != "" {
+		// Docker refuses while other deployments of the project still use it.
+		a.docker.RemoveNetwork(ctx, d.ProjectNetwork)
 	}
 	return nil
 }

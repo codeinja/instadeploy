@@ -104,6 +104,9 @@ type AgentDeployment struct {
 	// IMAGE/DOCKERFILE: the container. COMPOSE: the Compose project name.
 	ContainerName string `json:"container_name"`
 	Network       string `json:"network"`
+	// ProjectNetwork is private to the deployments of one project and environment
+	// on this agent; every service joins it under its ProjectAliases.
+	ProjectNetwork string `json:"project_network,omitempty"`
 
 	// IMAGE: what to pull (pinned to a digest on rollback).
 	Image string `json:"image,omitempty"`
@@ -137,12 +140,14 @@ type AgentSource struct {
 }
 
 type AgentService struct {
-	Name        string            `json:"name"`
-	Port        int               `json:"port,omitempty"`
-	Public      bool              `json:"public"`
-	Alias       string            `json:"alias"`
-	Env         map[string]string `json:"env"`
-	HealthCheck *HealthCheck      `json:"health_check,omitempty"`
+	Name   string `json:"name"`
+	Port   int    `json:"port,omitempty"`
+	Public bool   `json:"public"`
+	Alias  string `json:"alias"`
+	// How the other deployments of the project reach this service (see privateHost).
+	ProjectAliases []string          `json:"project_aliases,omitempty"`
+	Env            map[string]string `json:"env"`
+	HealthCheck    *HealthCheck      `json:"health_check,omitempty"`
 }
 
 type AgentVolume struct {
@@ -266,6 +271,7 @@ func (s *Server) materialize(ctx context.Context, agentID string, t taskRow) (Ag
 	ad := &AgentDeployment{
 		ID: d.ID, Name: d.Name, Type: d.Type, Environment: d.Environment,
 		ContainerName: containerName(d.Name, d.ID), Network: agentNetwork,
+		ProjectNetwork: projectNetwork(d),
 	}
 	spec := d.Spec
 	switch t.Type {
@@ -331,7 +337,8 @@ func (s *Server) fillDeployPayload(ctx context.Context, d *Deployment, spec Spec
 	for _, svc := range spec.Services {
 		ad.Services = append(ad.Services, AgentService{
 			Name: svc.Name, Port: svc.Port, Public: svc.Public, Alias: targetHost(d, svc.Name),
-			Env: vars.forService(svc.Name), HealthCheck: svc.HealthCheck,
+			ProjectAliases: []string{privateHost(d, svc.Name)},
+			Env:            vars.forService(svc.Name), HealthCheck: svc.HealthCheck,
 		})
 	}
 

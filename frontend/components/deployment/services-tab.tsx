@@ -29,6 +29,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+// How the project's other deployments (same environment and agent) reach a service
+// on the project network: mirrors privateHost in backend/spec.go.
+function privateAddress(d: Deployment, s: Service) {
+  const host =
+    d.type === "COMPOSE" ? `${s.name.toLowerCase()}.${d.name}` : d.name;
+  return s.port ? `${host}:${s.port}` : host;
+}
+
 export function ServicesTab({
   d,
   onChanged,
@@ -116,6 +124,12 @@ export function ServicesTab({
                     title={s.image}
                   >
                     {s.image}
+                  </div>
+                  <div
+                    className="max-w-56 truncate font-mono text-xs text-muted-foreground"
+                    title={`Private address for this project's other ${d.environment} deployments`}
+                  >
+                    {privateAddress(d, s)}
                   </div>
                 </TableCell>
                 <TableCell>

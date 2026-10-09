@@ -243,6 +243,23 @@ func targetHost(d *Deployment, service string) string {
 	return containerName(d.Name, d.ID)
 }
 
+// projectNetwork is the Docker network shared by the deployments of one project and
+// environment (on the same agent), so they reach each other privately by name without
+// being public. Other projects, and other environments of this one, are not on it.
+func projectNetwork(d *Deployment) string {
+	return "insta-p-" + shortID(d.ProjectID) + "-" + d.Environment
+}
+
+// privateHost is the name other deployments of the project use to reach a service on
+// the project network: the deployment name for a single container, and
+// "<service>.<deployment>" for a Compose service (e.g. "iris" or "legion.legion").
+func privateHost(d *Deployment, service string) string {
+	if d.Type == TypeCompose {
+		return strings.ToLower(service) + "." + d.Name
+	}
+	return d.Name
+}
+
 // dockerVolumeName prefixes named volumes per deployment so two
 // deployments that both use "data" don't share it by accident.
 func dockerVolumeName(deploymentID, volume string) string {

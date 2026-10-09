@@ -536,11 +536,25 @@ func (d *DockerService) EnsureNetwork(ctx context.Context, name string) error {
 }
 
 func (d *DockerService) ConnectNetwork(ctx context.Context, network, container string) error {
-	err := d.call(ctx, "POST", "/networks/"+network+"/connect", map[string]any{"Container": container}, nil)
+	return d.ConnectNetworkAs(ctx, network, container, nil)
+}
+
+// ConnectNetworkAs connects a container to a network under extra DNS aliases.
+func (d *DockerService) ConnectNetworkAs(ctx context.Context, network, container string, aliases []string) error {
+	body := map[string]any{"Container": container}
+	if len(aliases) > 0 {
+		body["EndpointConfig"] = map[string]any{"Aliases": aliases}
+	}
+	err := d.call(ctx, "POST", "/networks/"+network+"/connect", body, nil)
 	if err != nil && strings.Contains(err.Error(), "already exists") {
 		return nil
 	}
 	return err
+}
+
+// RemoveNetwork removes a network by name if nothing uses it any more.
+func (d *DockerService) RemoveNetwork(ctx context.Context, name string) {
+	d.call(ctx, "DELETE", "/networks/"+name, nil, nil)
 }
 
 // RemoveNetworks removes networks with the given label (a Compose project's
