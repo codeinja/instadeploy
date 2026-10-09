@@ -315,8 +315,11 @@ func (s *Server) newRevision(ctx context.Context, tx *sql.Tx, d *Deployment, spe
 // sources it first resolves the branch to a commit, so the revision records
 // exactly what will be built.
 func (s *Server) deploy(ctx context.Context, d *Deployment, spec Spec, trigger, imageDigest, gitCommit string, rollbackOf *string) (*Revision, error) {
+	if spec.Source != nil && spec.Source.Kind == "upload" && rollbackOf == nil {
+		return nil, errUploadsRemoved
+	}
 	if spec.Source != nil && spec.Source.Kind == "git" && gitCommit == "" {
-		commit, err := gitResolve(ctx, spec.Source.GitURL, spec.Source.GitRef)
+		commit, err := s.resolveGitCommit(ctx, d.userID, spec.Source.GitURL, spec.Source.GitRef)
 		if err != nil {
 			return nil, err
 		}

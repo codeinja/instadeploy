@@ -8,6 +8,7 @@ import { authClient, useSession } from "@/lib/auth-client";
 import { api, errorMessage } from "@/lib/api";
 import type { Me, RegistryCredential } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
+import { GitHubAppSetup } from "@/components/github-app-setup";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -267,6 +268,20 @@ export default function SettingsPage() {
       </SettingsGroup>
 
       <SettingsGroup
+        id="github"
+        title="GitHub"
+        description={
+          <>
+            Deploy private repositories and redeploy on every push. You create
+            your own GitHub App, so Insta Deploy only gets read access to the
+            repositories you choose.
+          </>
+        }
+      >
+        <GitHubAppSetup />
+      </SettingsGroup>
+
+      <SettingsGroup
         title="Private registries"
         description="Pull private images from Docker Hub, GHCR, GitLab or your own registry. Use an access token rather than your password."
       >
@@ -345,18 +360,23 @@ export default function SettingsPage() {
 
 // A settings group: title and description on the left, the controls on the right.
 function SettingsGroup({
+  id,
   title,
   description,
   actions,
   children,
 }: {
+  id?: string;
   title: string;
   description?: React.ReactNode;
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <section className="grid gap-4 border-t pt-8 first-of-type:border-t-0 first-of-type:pt-0 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] md:gap-8">
+    <section
+      id={id}
+      className="grid scroll-mt-20 gap-4 border-t pt-8 first-of-type:border-t-0 first-of-type:pt-0 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] md:gap-8"
+    >
       <div className="space-y-1">
         <h2 className="font-semibold">{title}</h2>
         {description && (

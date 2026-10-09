@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -41,13 +42,13 @@ type Spec struct {
 }
 
 type Source struct {
-	// upload (a ZIP uploaded to Insta Deploy), git, or inline (Compose YAML
-	// pasted or uploaded as a single file).
-	Kind     string `json:"kind"`
-	UploadID string `json:"upload_id,omitempty"`
-	GitURL   string `json:"git_url,omitempty"`
-	GitRef   string `json:"git_branch,omitempty"`
-	// Path of the Dockerfile or Compose file inside the upload/repository.
+	// git, or inline (Compose YAML pasted or opened from a single file).
+	// Deployments made before ZIP uploads were removed may still say
+	// "upload"; they can't be redeployed until they switch to Git.
+	Kind   string `json:"kind"`
+	GitURL string `json:"git_url,omitempty"`
+	GitRef string `json:"git_branch,omitempty"`
+	// Path of the Dockerfile or Compose file inside the repository.
 	Path    string `json:"path,omitempty"`
 	Compose string `json:"compose,omitempty"` // inline Compose YAML
 }
@@ -159,12 +160,12 @@ func (s *Spec) Validate() error {
 	return nil
 }
 
+var errUploadsRemoved = errors.New("ZIP uploads are no longer supported. Deploy from a Git repository instead (private GitHub repositories work through a GitHub App, see Settings > GitHub)")
+
 func (src *Source) validate(typ string) error {
 	switch src.Kind {
 	case "upload":
-		if !validUUID(src.UploadID) {
-			return fmt.Errorf("upload a ZIP file with your project")
-		}
+		return errUploadsRemoved
 	case "git":
 		if err := validateGitURL(src.GitURL); err != nil {
 			return err

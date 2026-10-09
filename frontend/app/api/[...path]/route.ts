@@ -37,6 +37,11 @@ async function proxy(request: Request, ctx: RouteContext<"/api/[...path]">) {
     "cookie",
     "accept",
     "last-event-id",
+    // GitHub App webhooks (/api/github/webhook) are verified by the backend.
+    "x-github-event",
+    "x-github-delivery",
+    "x-github-hook-installation-target-id",
+    "x-hub-signature-256",
   ]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
@@ -47,7 +52,7 @@ async function proxy(request: Request, ctx: RouteContext<"/api/[...path]">) {
     const res = await fetch(target, {
       method: request.method,
       headers,
-      // Stream the body so large uploads (build contexts) aren't buffered.
+      // Stream the body instead of buffering it.
       body: hasBody ? request.body : undefined,
       // @ts-expect-error -- required by Node's fetch when streaming a body
       duplex: hasBody ? "half" : undefined,

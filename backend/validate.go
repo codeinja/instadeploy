@@ -48,13 +48,13 @@ func validateEnvKey(key string) error {
 	return nil
 }
 
-// validateGitURL only allows public https:// repositories. That rules out
+// validateGitURL only allows https:// repositories. That rules out
 // ssh://, file:// and "--option" style values that could change what git does.
 func validateGitURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
 		strings.HasPrefix(raw, "-") || len(raw) > 500 {
-		return fmt.Errorf("enter a public https:// Git repository URL, like https://github.com/user/repo")
+		return fmt.Errorf("enter an https:// Git repository URL, like https://github.com/user/repo")
 	}
 	if ip := net.ParseIP(u.Hostname()); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()) {
 		return fmt.Errorf("Git repositories on private addresses aren't supported")

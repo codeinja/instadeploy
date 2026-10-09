@@ -11,9 +11,8 @@ type Config struct {
 	ListenAddr  string
 	DatabaseURL string
 
-	// Holds uploaded build contexts and the generated secrets key.
+	// Holds the generated secrets key.
 	DataDir      string
-	MaxUploadMB  int64
 	SecretsKey   string // optional; generated into DataDir if empty
 	GitPollEvery time.Duration
 
@@ -32,7 +31,6 @@ func loadConfig() Config {
 		ListenAddr:   env("LISTEN_ADDR", ":8080"),
 		DatabaseURL:  env("DATABASE_URL", "postgres://insta:insta@localhost:5432/insta?sslmode=disable"),
 		DataDir:      env("DATA_DIR", "./data"),
-		MaxUploadMB:  int64(envInt("MAX_UPLOAD_MB", 200)),
 		SecretsKey:   os.Getenv("SECRETS_KEY"),
 		GitPollEvery: time.Duration(envInt("GIT_POLL_SECONDS", 60)) * time.Second,
 	}

@@ -54,7 +54,7 @@ user ─┬─ project ─┬─ deployment ─┬─ deployment_revision  histo
       │           ├─ variable                            project / environment level
       │           └─ domain ── route                     custom domains
       ├─ agent ── agent_tasks
-      └─ registry_credentials, uploads, events
+      └─ registry_credentials, github_apps, events
 settings                                                 server-wide (Pangolin, addresses)
 ```
 
@@ -112,7 +112,7 @@ Everything the server wants a machine to do is a row in `agent_tasks`: `DEPLOY`,
 | Type | Steps |
 | --- | --- |
 | Image | Pull (records the digest) → replace the container under the same name → wait for it to run |
-| Dockerfile | Fetch the source (ZIP or Git clone) → `docker build` with BuildKit, tagged `insta-deploy/<id>:r<revision>` → run. The last 5 builds are kept for fast rollbacks. |
+| Dockerfile | Fetch the source (Git clone) → `docker build` with BuildKit, tagged `insta-deploy/<id>:r<revision>` → run. The last 5 builds are kept for fast rollbacks. |
 | Compose | Fetch the project → precheck → normalize → validate → transform → `docker compose pull`, `build`, `up -d --remove-orphans` |
 
 Compose details:

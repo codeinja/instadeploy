@@ -1,10 +1,7 @@
 package main
 
 import (
-	"archive/zip"
-	"bufio"
 	"fmt"
-	"io"
 	"path"
 	"regexp"
 	"sort"
@@ -33,27 +30,6 @@ type ComposeService struct {
 type ComposeAnalysis struct {
 	Services []ComposeService `json:"services"`
 	Warnings []string         `json:"warnings"`
-}
-
-type DockerfileInfo struct {
-	Path  string `json:"path"`
-	Ports []int  `json:"ports"`
-}
-
-type UploadAnalysis struct {
-	// A ZIP of a folder has every file under "folder/"; paths below are
-	// relative to that folder, and the agent strips it when extracting.
-	Root         string           `json:"root"`
-	Files        int              `json:"files"`
-	Dockerfiles  []DockerfileInfo `json:"dockerfiles"`
-	ComposeFiles []string         `json:"compose_files"`
-	// Analysis of the first Compose file found (the likely choice).
-	Compose     *ComposeAnalysis `json:"compose,omitempty"`
-	ComposePath string           `json:"compose_path,omitempty"`
-}
-
-var composeFileNames = map[string]bool{
-	"compose.yaml": true, "compose.yml": true, "docker-compose.yaml": true, "docker-compose.yml": true,
 }
 
 // analyzeCompose parses a Compose file. dockerfilePorts maps a build
@@ -225,164 +201,6 @@ func containerPort(v any) int {
 		return n
 	}
 	return 0
-}
-
-// dockerfileExposes reads EXPOSE instructions from a Dockerfile.
-func dockerfileExposes(r io.Reader) []int {
-	ports := map[int]bool{}
-	sc := bufio.NewScanner(io.LimitReader(r, 1<<20))
-	for sc.Scan() {
-		fields := strings.Fields(sc.Text())
-		if len(fields) < 2 || !strings.EqualFold(fields[0], "EXPOSE") {
-			continue
-		}
-		for _, f := range fields[1:] {
-			if n := containerPort(f); n > 0 {
-				ports[n] = true
-			}
-		}
-	}
-	out := []int{}
-	for n := range ports {
-		out = append(out, n)
-	}
-	sort.Ints(out)
-	return out
-}
-
-const (
-	maxZipFiles     = 20000
-	maxZipUnpacked  = 2 << 30 // 2 GB
-	maxAnalyzedFile = 1 << 20
-)
-
-// checkZip rejects archives that could escape the build directory or
-// explode on extraction. The agent repeats these checks when it extracts.
-func checkZip(zr *zip.Reader) error {
-	if len(zr.File) > maxZipFiles {
-		return fmt.Errorf("the ZIP has too many files (max %d)", maxZipFiles)
-	}
-	var total uint64
-	for _, f := range zr.File {
-		if err := safeArchivePath(f.Name); err != nil {
-			return err
-		}
-		if f.Mode()&0o170000 == 0o120000 {
-			return fmt.Errorf("the ZIP contains a symbolic link (%s), which isn't supported", f.Name)
-		}
-		total += f.UncompressedSize64
-		if total > maxZipUnpacked {
-			return fmt.Errorf("the ZIP unpacks to more than 2 GB")
-		}
-	}
-	return nil
-}
-
-func safeArchivePath(name string) error {
-	clean := path.Clean(strings.ReplaceAll(name, "\\", "/"))
-	if strings.HasPrefix(clean, "/") || clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(name, "\x00") {
-		return fmt.Errorf("the ZIP contains an unsafe path: %q", name)
-	}
-	return nil
-}
-
-// zipRoot handles ZIPs made by zipping a folder ("my-app/Dockerfile"):
-// it returns "my-app/" if every file is inside that one folder.
-func zipRoot(zr *zip.Reader) string {
-	root := ""
-	for _, f := range zr.File {
-		first, _, ok := strings.Cut(f.Name, "/")
-		if !ok {
-			return "" // a file at the top level
-		}
-		if root == "" {
-			root = first
-		} else if root != first {
-			return ""
-		}
-	}
-	if root == "" || root == "__MACOSX" {
-		return ""
-	}
-	return root + "/"
-}
-
-func analyzeZip(zr *zip.Reader) (*UploadAnalysis, error) {
-	if err := checkZip(zr); err != nil {
-		return nil, err
-	}
-	root := zipRoot(zr)
-	a := &UploadAnalysis{Root: root, Dockerfiles: []DockerfileInfo{}, ComposeFiles: []string{}}
-	dockerfilePorts := map[string][]int{}
-	composeContent := map[string]string{}
-
-	for _, f := range zr.File {
-		if f.FileInfo().IsDir() || strings.HasPrefix(f.Name, "__MACOSX/") {
-			continue
-		}
-		a.Files++
-		rel := strings.TrimPrefix(f.Name, root)
-		base := path.Base(rel)
-		if strings.Contains(rel, "node_modules/") || strings.Contains(rel, ".git/") {
-			continue
-		}
-		isDockerfile := base == "Dockerfile" || strings.HasSuffix(base, ".Dockerfile") || strings.HasPrefix(base, "Dockerfile.")
-		if !isDockerfile && !composeFileNames[base] {
-			continue
-		}
-		if f.UncompressedSize64 > maxAnalyzedFile {
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return nil, fmt.Errorf("the ZIP is damaged: %w", err)
-		}
-		body, _ := io.ReadAll(io.LimitReader(rc, maxAnalyzedFile))
-		rc.Close()
-		if isDockerfile {
-			ports := dockerfileExposes(strings.NewReader(string(body)))
-			a.Dockerfiles = append(a.Dockerfiles, DockerfileInfo{Path: rel, Ports: ports})
-			if base == "Dockerfile" {
-				dockerfilePorts[path.Dir(rel)] = ports
-			}
-		} else {
-			a.ComposeFiles = append(a.ComposeFiles, rel)
-			composeContent[rel] = string(body)
-		}
-	}
-	sort.Slice(a.Dockerfiles, func(i, j int) bool { return depth(a.Dockerfiles[i].Path) < depth(a.Dockerfiles[j].Path) })
-	sort.Slice(a.ComposeFiles, func(i, j int) bool { return depth(a.ComposeFiles[i]) < depth(a.ComposeFiles[j]) })
-
-	if len(a.ComposeFiles) > 0 {
-		a.ComposePath = a.ComposeFiles[0]
-		// Build contexts in a Compose file are relative to the file.
-		dir := path.Dir(a.ComposePath)
-		rel := map[string][]int{}
-		for ctx, ports := range dockerfilePorts {
-			if r, err := relPath(dir, ctx); err == nil {
-				rel[r] = ports
-			}
-		}
-		if c, err := analyzeCompose(composeContent[a.ComposePath], rel); err == nil {
-			a.Compose = c
-		}
-	}
-	return a, nil
-}
-
-func depth(p string) int { return strings.Count(p, "/") }
-
-func relPath(base, target string) (string, error) {
-	if base == "." {
-		return path.Clean(target), nil
-	}
-	if target == base {
-		return ".", nil
-	}
-	if strings.HasPrefix(target, base+"/") {
-		return strings.TrimPrefix(target, base+"/"), nil
-	}
-	return "", fmt.Errorf("outside")
 }
 
 func firstLine(s string) string {

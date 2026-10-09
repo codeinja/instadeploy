@@ -24,6 +24,11 @@ type Server struct {
 	stats     statsStore
 	routeKick chan struct{}
 
+	// GitHub App installation tokens (see github.go).
+	github githubTokens
+	// Serializes auto deploys from polling and webhooks.
+	autoDeployMu sync.Mutex
+
 	// When each domain's verification was last restarted (see recheckDomain).
 	domainRetry struct {
 		sync.Mutex
@@ -124,12 +129,15 @@ func (s *Server) routes() http.Handler {
 			r.Post("/agents/{id}/token", s.handleRotateAgentToken)
 			r.Delete("/agents/{id}", s.handleDeleteAgent)
 
-			r.Post("/uploads", s.handleUpload)
 			r.Post("/analyze/image", s.handleAnalyzeImage)
 			r.Post("/analyze/compose", s.handleAnalyzeCompose)
 			r.Post("/analyze/git", s.handleAnalyzeGit)
 			r.Post("/convert/docker-run", s.handleConvertDockerRun)
 			r.Get("/apps", s.handleListApps)
+
+			r.Get("/github", s.handleGetGitHub)
+			r.Put("/github", s.handleSaveGitHub)
+			r.Delete("/github", s.handleDeleteGitHub)
 
 			r.Post("/deployments", s.handleCreateDeployment)
 			r.Get("/deployments", s.handleListDeployments)
@@ -164,6 +172,9 @@ func (s *Server) routes() http.Handler {
 			r.Delete("/domains/{id}", s.handleDeleteDomain)
 		})
 
+		// GitHub App webhooks, signed with the app's webhook secret.
+		r.Post("/github/webhook", s.handleGitHubWebhook)
+
 		// Agent API (agent token).
 		r.Route("/agent", func(r chi.Router) {
 			r.Use(s.requireAgent)
@@ -172,7 +183,6 @@ func (s *Server) routes() http.Handler {
 			r.Get("/commands", s.handleAgentCommands)
 			r.Post("/tasks/{id}/status", s.handleAgentTaskStatus)
 			r.Post("/deployments/{id}/logs", s.handleAgentLogs)
-			r.Get("/uploads/{id}", s.handleAgentDownloadUpload)
 		})
 	})
 	return r

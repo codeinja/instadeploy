@@ -1,108 +1,15 @@
 package main
 
 import (
-	"archive/zip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 )
-
-func (s *Server) uploadsDir() string { return filepath.Join(s.cfg.DataDir, "uploads") }
-
-// handleUpload accepts a ZIP build context (multipart field "file"),
-// checks it, stores it in DATA_DIR/uploads and returns what's inside.
-func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
-	limit := s.cfg.MaxUploadMB << 20
-	r.Body = http.MaxBytesReader(w, r.Body, limit+1<<20)
-	mr, err := r.MultipartReader()
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "send the file as multipart/form-data")
-		return
-	}
-	var part interface {
-		io.Reader
-		FileName() string
-		FormName() string
-	}
-	for {
-		p, err := mr.NextPart()
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "no file in the upload")
-			return
-		}
-		if p.FormName() == "file" {
-			part = p
-			break
-		}
-	}
-	filename := filepath.Base(part.FileName())
-	if !strings.HasSuffix(strings.ToLower(filename), ".zip") {
-		writeError(w, http.StatusBadRequest, "upload a .zip file")
-		return
-	}
-
-	if err := os.MkdirAll(s.uploadsDir(), 0o700); err != nil {
-		internalError(w, err)
-		return
-	}
-	tmp, err := os.CreateTemp(s.uploadsDir(), "incoming-*.zip")
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	defer os.Remove(tmp.Name()) // no-op once renamed
-	defer tmp.Close()
-
-	hash := sha256.New()
-	n, err := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(part, limit+1))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "upload interrupted: "+err.Error())
-		return
-	}
-	if n > limit {
-		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("the file is larger than %d MB", s.cfg.MaxUploadMB))
-		return
-	}
-
-	zr, err := zip.NewReader(tmp, n)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "this isn't a valid ZIP file")
-		return
-	}
-	analysis, err := analyzeZip(zr)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if analysis.Compose != nil {
-		s.enrichComposePorts(r.Context(), userID(r), analysis.Compose)
-	}
-	analysisJSON, _ := json.Marshal(analysis)
-
-	var id string
-	err = s.db.QueryRowContext(r.Context(), `INSERT INTO uploads (user_id, filename, size, sha256, analysis) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		userID(r), trunc(filename, 255), n, hex.EncodeToString(hash.Sum(nil)), analysisJSON).Scan(&id)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	tmp.Close()
-	if err := os.Rename(tmp.Name(), filepath.Join(s.uploadsDir(), id+".zip")); err != nil {
-		internalError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "filename": filename, "size": n, "analysis": analysis})
-}
 
 // POST /api/analyze/image {"image": "nginx:latest", "agent_id": "..."}
 func (s *Server) handleAnalyzeImage(w http.ResponseWriter, r *http.Request) {
@@ -170,7 +77,7 @@ func (s *Server) handleAnalyzeGit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "enter a valid branch name")
 		return
 	}
-	commit, err := gitResolve(r.Context(), req.GitURL, req.GitRef)
+	commit, err := s.resolveGitCommit(r.Context(), userID(r), req.GitURL, req.GitRef)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

@@ -22,6 +22,8 @@ tags:
   - name: Domains
   - name: Agents
   - name: Analysis
+  - name: GitHub
+    description: GitHub App for private repositories and push webhooks.
   - name: Agent API
     description: Used by the agent running on your machine. Not for dashboard use.
 components:
@@ -56,8 +58,7 @@ components:
           type: object
           description: DOCKERFILE and COMPOSE
           properties:
-            kind: { type: string, enum: [upload, git, inline] }
-            upload_id: { type: string, format: uuid }
+            kind: { type: string, enum: [git, inline] }
             git_url: { type: string, example: "https://github.com/user/my-app" }
             git_branch: { type: string, example: main }
             path: { type: string, example: Dockerfile, description: Dockerfile or Compose file inside the project }
@@ -495,15 +496,6 @@ paths:
       parameters: [{ $ref: "#/components/parameters/id" }]
       responses: { "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/AgentConnect" } } } } }
 
-  /api/uploads:
-    post:
-      tags: [Analysis]
-      summary: Upload a project ZIP (build context) and get what's inside
-      requestBody:
-        content:
-          multipart/form-data:
-            schema: { type: object, properties: { file: { type: string, format: binary } } }
-      responses: { "201": { description: Uploaded with analysis } }
   /api/analyze/image:
     post:
       tags: [Analysis]
@@ -526,6 +518,25 @@ paths:
         content: { application/json: { schema: { type: object, properties: { git_url: { type: string }, git_branch: { type: string }, agent_id: { type: string } } } } }
       responses: { "200": { description: OK } }
 
+  /api/github:
+    get:
+      tags: [GitHub]
+      summary: Your GitHub App, where it's installed and the repositories it can read
+      responses: { "200": { description: OK } }
+    put:
+      tags: [GitHub]
+      summary: Connect or update your GitHub App (checked with GitHub before saving)
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { app_id: { type: string, example: "123456" }, private_key: { type: string, description: PEM; empty keeps the saved key }, webhook_secret: { type: string, description: Empty keeps the saved secret } } } } }
+      responses: { "200": { description: OK }, "400": { description: Invalid input or missing Contents permission }, "502": { description: GitHub rejected the credentials } }
+    delete: { tags: [GitHub], summary: Disconnect your GitHub App, responses: { "204": { description: Disconnected } } }
+  /api/github/webhook:
+    post:
+      tags: [GitHub]
+      security: []
+      summary: GitHub App webhook (signed with the app's webhook secret). A push redeploys auto-deploy deployments of that repository and branch.
+      responses: { "200": { description: Ping }, "202": { description: Accepted }, "401": { description: Invalid signature } }
+
   /api/agent/register:
     post: { tags: [Agent API], security: [{ agentToken: [] }], summary: Called on startup; returns Pangolin tunnel credentials, responses: { "200": { description: OK } } }
   /api/agent/heartbeat:
@@ -541,5 +552,3 @@ paths:
     post: { tags: [Agent API], security: [{ agentToken: [] }], summary: Report task progress (RUNNING with a phase, DONE or FAILED), parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: OK } } }
   /api/agent/deployments/{id}/logs:
     post: { tags: [Agent API], security: [{ agentToken: [] }], summary: Send build/deploy log lines, parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: OK } } }
-  /api/agent/uploads/{id}:
-    get: { tags: [Agent API], security: [{ agentToken: [] }], summary: Download a build context used by one of this agent's deployments, parameters: [{ $ref: "#/components/parameters/id" }], responses: { "200": { description: application/zip } } }

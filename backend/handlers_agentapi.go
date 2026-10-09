@@ -6,10 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
@@ -406,31 +403,6 @@ func (s *Server) logLine(ctx context.Context, deploymentID, revisionID, stream, 
 	}
 	s.db.ExecContext(ctx, `INSERT INTO deployment_logs (deployment_id, revision_id, stream, line) VALUES ($1, $2, $3, $4)`,
 		deploymentID, rev, stream, text)
-}
-
-// handleAgentDownloadUpload serves a build context to an agent, but only if
-// one of the agent's deployments uses it.
-func (s *Server) handleAgentDownloadUpload(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	var allowed bool
-	if validUUID(id) {
-		s.db.QueryRowContext(r.Context(), `SELECT EXISTS(
-			SELECT 1 FROM deployment_revisions rv JOIN deployments d ON d.id = rv.deployment_id
-			WHERE d.agent_id = $1 AND rv.spec->'source'->>'upload_id' = $2)`, agentID(r), id).Scan(&allowed)
-	}
-	if !allowed {
-		writeError(w, http.StatusNotFound, "upload not found")
-		return
-	}
-	f, err := os.Open(filepath.Join(s.uploadsDir(), id+".zip"))
-	if err != nil {
-		log.Printf("open upload %s: %v", id, err)
-		writeError(w, http.StatusNotFound, "upload file is missing on the server")
-		return
-	}
-	defer f.Close()
-	w.Header().Set("Content-Type", "application/zip")
-	http.ServeContent(w, r, id+".zip", time.Time{}, f)
 }
 
 func trunc(s string, n int) string {

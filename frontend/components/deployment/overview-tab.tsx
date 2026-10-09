@@ -152,7 +152,9 @@ export function OverviewTab({
                 <span>
                   <span className="block text-sm font-medium">Auto deploy</span>
                   <span className="block text-xs text-muted-foreground">
-                    Redeploy when {d.spec.source.git_branch} gets new commits.
+                    Build and redeploy when {d.spec.source.git_branch} gets
+                    new commits (checked every minute, or right away on push
+                    with a GitHub App webhook).
                   </span>
                 </span>
               </label>

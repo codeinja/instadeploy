@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 )
 
@@ -77,14 +76,13 @@ type Deployment struct {
 }
 
 type Source struct {
-	Kind        string `json:"kind"` // upload, git, inline
-	DownloadURL string `json:"download_url"`
-	Root        string `json:"root"`
-	GitURL      string `json:"git_url"`
-	GitRef      string `json:"git_branch"`
-	GitCommit   string `json:"git_commit"`
-	Path        string `json:"path"`
-	Compose     string `json:"compose"`
+	Kind      string `json:"kind"` // git, inline
+	GitURL    string `json:"git_url"`
+	GitRef    string `json:"git_branch"`
+	GitCommit string `json:"git_commit"`
+	GitToken  string `json:"git_token"` // short-lived, for private GitHub repositories
+	Path      string `json:"path"`
+	Compose   string `json:"compose"`
 }
 
 type Service struct {
@@ -124,6 +122,7 @@ type AnalyzeInput struct {
 	GitURL    string `json:"git_url"`
 	GitRef    string `json:"git_branch"`
 	GitCommit string `json:"git_commit"`
+	GitToken  string `json:"git_token"`
 }
 
 type ContainerReport struct {
@@ -175,30 +174,6 @@ func (a *API) ReportTask(ctx context.Context, taskID, status, phase, errMsg stri
 func (a *API) SendLogs(ctx context.Context, deploymentID, revisionID string, lines []LogEntry) error {
 	return a.call(ctx, a.http, "POST", "/api/agent/deployments/"+deploymentID+"/logs",
 		map[string]any{"revision_id": revisionID, "lines": lines}, nil)
-}
-
-// Download saves an uploaded build context to a file.
-func (a *API) Download(ctx context.Context, path, dest string) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", a.server+path, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+a.token)
-	resp, err := (&http.Client{}).Do(req) // no timeout: contexts can be large
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download build context: HTTP %d", resp.StatusCode)
-	}
-	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
 }
 
 func (a *API) call(ctx context.Context, client *http.Client, method, path string, body, out any) error {

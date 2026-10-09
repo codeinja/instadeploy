@@ -9,7 +9,7 @@ Start from **New deployment** in the dashboard (or press `Ctrl/⌘ K`), then pic
 | [App Store](#app-store) | Popular self-hosted apps, one click |
 | [docker run command](#docker-run-commands) | A command copied from an app's README |
 | [Docker image](#docker-image) | Any image from Docker Hub, GHCR or another registry |
-| [Dockerfile](#dockerfile) | Your own source code, uploaded as a ZIP or from Git |
+| [Dockerfile](#dockerfile) | Your own source code, from a Git repository |
 | [Docker Compose](#docker-compose) | Multi-service apps |
 
 For every option you also choose a **machine**, a **project** and an **environment** (production, staging or development). Names use lowercase letters, numbers and dashes.
@@ -58,14 +58,13 @@ Run any image, such as `nginx`, `postgres:17` or `ghcr.io/user/app:1.4`.
 
 Build and run your own code.
 
-- **Upload a ZIP** of the project (Dockerfile plus source). A ZIP containing a single folder is handled automatically.
-- **Git repository**: a public `https://` repository and branch. Click **Analyze** to find the Dockerfiles and their exposed ports.
+- **Git repository**: an `https://` repository and branch. Click **Analyze** to find the Dockerfiles and their exposed ports. Private GitHub repositories need a [GitHub App](#private-github-repositories).
 - Builds use BuildKit, and their output streams to **Logs → Build**.
 - Images are tagged `insta-deploy/<id>:r<revision>`. The last five are kept, so rolling back to a recent version doesn't rebuild.
 
 ## Docker Compose
 
-Provide the project as pasted YAML (or an opened `compose.yaml`), an uploaded ZIP (Compose file plus Dockerfiles and config), or a Git repository.
+Provide the project as pasted YAML (or an opened `compose.yaml`), or a Git repository (Compose file plus Dockerfiles and config).
 
 Insta Deploy lists every service with its image or build folder and detected ports. **No service is public until you switch it on.** Each public service gets its own URL (`<name>-<service>-xxxx.<apps domain>`), and the others are reachable only from inside the project, by service name.
 
@@ -130,8 +129,27 @@ Each deployment page has these tabs:
 
 The header buttons are **Open**, **Start/Stop**, **Redeploy**, and in the **⋯** menu, **Restart** and **Delete**.
 
-- **Auto deploy** (Git sources): turn it on in **Overview**. The branch is checked every 60 seconds (`GIT_POLL_SECONDS`), and new commits are deployed.
+- **Auto deploy** (Git sources): on by default for new Git deployments, and can be switched in **Overview**. See [Continuous deployment](#continuous-deployment).
 - **Rollback** creates a new revision from an earlier one; it doesn't rewrite history.
+
+## Private GitHub repositories
+
+Private repositories are read through a **GitHub App** that you create, so Insta Deploy only gets read access to the repositories you choose. **Settings → GitHub** walks through it step by step:
+
+1. Create the app on GitHub with **Repository permissions → Contents: Read-only**, subscribed to **Push** events. Set its webhook URL to `<dashboard URL>/api/github/webhook` with a secret, or leave the webhook inactive if the dashboard isn't reachable from the internet.
+2. Enter the **App ID**, its **private key** (`.pem`) and the **webhook secret** in Insta Deploy. They're checked with GitHub, then stored encrypted.
+3. **Install** the app on the repositories to deploy. They then appear in a repository list on the deploy form.
+
+Each account connects its own app. Insta Deploy mints a token for one repository, read-only and valid for an hour, whenever it needs one: to resolve a branch, and when it hands a build to the agent. The agent passes the token to `git` through its environment, so it isn't in the clone URL, the process list or the logs. Agents older than this feature can't clone private repositories, so update them.
+
+## Continuous deployment
+
+With **Auto deploy** on, every new commit on the deployment's branch is built and deployed as a new revision (trigger `auto`):
+
+- **Push webhook** (GitHub App with an active webhook): GitHub notifies Insta Deploy on every push, and the redeploy is queued right away.
+- **Polling**: every Git deployment with auto deploy is also checked every 60 seconds (`GIT_POLL_SECONDS`). This covers repositories without a webhook, missed deliveries, and commits pushed while a build was running.
+
+If a deploy is already queued or running, the newer commit is deployed once it's done. A failed build doesn't stop later commits from being tried.
 
 ## Custom domains
 

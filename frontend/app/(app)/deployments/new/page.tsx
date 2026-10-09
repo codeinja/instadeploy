@@ -30,6 +30,7 @@ import {
   GitBranch,
   Layers,
   Loader2,
+  Lock,
   Plus,
   Search,
   TriangleAlert,
@@ -44,14 +45,14 @@ import type {
   Deployment,
   DeploymentType,
   DockerRunConversion,
+  GitHubStatus,
   ImageInfo,
   Me,
   Project,
   SourceAnalysis,
   Spec,
-  UploadResult,
 } from "@/lib/types";
-import { formatBytes, nameFromGit, nameFromImage } from "@/lib/format";
+import { nameFromGit, nameFromImage } from "@/lib/format";
 import { clearDraft, readDraft, saveDraft } from "@/lib/draft";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -99,7 +100,7 @@ const types: {
     type: "DOCKERFILE",
     title: "Dockerfile",
     description:
-      "Build from your project: upload a ZIP or use a Git repository.",
+      "Build from a Git repository with a Dockerfile, public or private.",
     icon: FileCode2,
     example: "Dockerfile + source",
   },
@@ -335,16 +336,15 @@ function DeployForm({
   const [inspecting, setInspecting] = useState(false);
   const [inspectError, setInspectError] = useState<string | null>(null);
 
-  const [sourceKind, setSourceKind] = useState<"upload" | "git" | "inline">(
-    type === "COMPOSE" ? "inline" : "upload",
+  const [sourceKind, setSourceKind] = useState<"git" | "inline">(
+    type === "COMPOSE" ? "inline" : "git",
   );
-  const [upload, setUpload] = useState<UploadResult | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [github, setGitHub] = useState<GitHubStatus | null>(null);
   const [gitUrl, setGitUrl] = useState("");
   const [gitBranch, setGitBranch] = useState("main");
   const [gitAnalysis, setGitAnalysis] = useState<SourceAnalysis | null>(null);
   const [analyzingGit, setAnalyzingGit] = useState(false);
-  const [autoDeploy, setAutoDeploy] = useState(false);
+  const [autoDeploy, setAutoDeploy] = useState(true);
   const [path, setPath] = useState("");
   const [composeText, setComposeText] = useState(draft?.compose ?? "");
   const [composeAnalysis, setComposeAnalysis] =
@@ -389,7 +389,13 @@ function DeployForm({
           );
       })
       .catch((e) => setFormError(errorMessage(e)));
-  }, [initialProject]);
+    // Repositories the user's GitHub App can read, for the picker. Optional:
+    // public repositories work without it.
+    if (type !== "IMAGE")
+      api<GitHubStatus>("/github")
+        .then(setGitHub)
+        .catch(() => {});
+  }, [initialProject, type]);
 
   const suggestName = (n: string) => {
     if (!nameTouched.current && n) setName(n);
@@ -418,32 +424,7 @@ function DeployForm({
     }
   }
 
-  // ---- Uploads (ZIP).
-  async function uploadZip(file: File) {
-    setUploading(true);
-    setUpload(null);
-    setFormError(null);
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await api<UploadResult>("/uploads", {
-        method: "POST",
-        body: form,
-      });
-      setUpload(res);
-      applyAnalysis(res.analysis);
-      suggestName(nameFromGit(file.name.replace(/\.zip$/i, "")));
-      toast.success(`Uploaded ${file.name}`, {
-        description: `${res.analysis.files} files`,
-      });
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function analyzeGit() {
+  async function analyzeGit(url = gitUrl, branch = gitBranch) {
     if (!agentId) return toast.error("Choose a machine first");
     setAnalyzingGit(true);
     setGitAnalysis(null);
@@ -451,14 +432,14 @@ function DeployForm({
       const res = await api<SourceAnalysis>("/analyze/git", {
         method: "POST",
         body: {
-          git_url: gitUrl.trim(),
-          git_branch: gitBranch.trim(),
+          git_url: url.trim(),
+          git_branch: branch.trim(),
           agent_id: agentId,
         },
       });
       setGitAnalysis(res);
       applyAnalysis(res);
-      suggestName(nameFromGit(gitUrl));
+      suggestName(nameFromGit(url));
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -520,7 +501,7 @@ function DeployForm({
     [draft],
   );
 
-  // Compose YAML pasted or uploaded as a file: analyze as the user types.
+  // Compose YAML pasted or opened from a file: analyze as the user types.
   useEffect(() => {
     if (type !== "COMPOSE" || sourceKind !== "inline") return;
     if (!composeText.trim()) {
@@ -545,11 +526,8 @@ function DeployForm({
   }, [composeText, sourceKind, type, setComposeFromAnalysis]);
 
   const dockerfiles = useMemo(
-    () =>
-      (sourceKind === "upload"
-        ? upload?.analysis.dockerfiles
-        : gitAnalysis?.dockerfiles) ?? [],
-    [sourceKind, upload, gitAnalysis],
+    () => gitAnalysis?.dockerfiles ?? [],
+    [gitAnalysis],
   );
   const detectedPorts = useMemo(() => {
     if (type === "IMAGE") return imageInfo?.exposed_ports ?? [];
@@ -575,14 +553,12 @@ function DeployForm({
         source:
           sourceKind === "inline"
             ? { kind: "inline", compose: composeText }
-            : sourceKind === "upload"
-              ? { kind: "upload", upload_id: upload?.id, path }
-              : {
-                  kind: "git",
-                  git_url: gitUrl.trim(),
-                  git_branch: gitBranch.trim(),
-                  path,
-                },
+            : {
+                kind: "git",
+                git_url: gitUrl.trim(),
+                git_branch: gitBranch.trim(),
+                path,
+              },
         services: services.map((s) => ({
           name: s.name,
           public: s.public,
@@ -614,21 +590,14 @@ function DeployForm({
         spec.image =
           ref.includes("@") || !tag.trim() ? ref : `${ref}:${tag.trim()}`;
       } else {
-        spec.source =
-          sourceKind === "upload"
-            ? {
-                kind: "upload",
-                upload_id: upload?.id,
-                path: path || "Dockerfile",
-              }
-            : {
-                kind: "git",
-                git_url: gitUrl.trim(),
-                git_branch: gitBranch.trim(),
-                path: path || "Dockerfile",
-              };
-        if (sourceKind === "upload" && !upload)
-          return setFormError("Upload a ZIP of your project first.");
+        spec.source = {
+          kind: "git",
+          git_url: gitUrl.trim(),
+          git_branch: gitBranch.trim(),
+          path: path || "Dockerfile",
+        };
+        if (!gitUrl.trim())
+          return setFormError("Enter the Git repository to build from.");
       }
     }
 
@@ -649,7 +618,7 @@ function DeployForm({
           agent_id: agentId,
           name,
           environment,
-          auto_deploy: autoDeploy,
+          auto_deploy: sourceKind === "git" && type !== "IMAGE" && autoDeploy,
           spec,
           variables: env
             .filter((v) => v.key.trim())
@@ -780,18 +749,13 @@ function DeployForm({
             </>
           )}
 
-          {type !== "IMAGE" && (
+          {type === "COMPOSE" && (
             <Tabs
               value={sourceKind}
               onValueChange={(v) => setSourceKind(v as typeof sourceKind)}
             >
               <TabsList>
-                {type === "COMPOSE" && (
-                  <TabsTrigger value="inline">compose.yaml</TabsTrigger>
-                )}
-                <TabsTrigger value="upload">
-                  <FileUp /> Upload ZIP
-                </TabsTrigger>
+                <TabsTrigger value="inline">compose.yaml</TabsTrigger>
                 <TabsTrigger value="git">
                   <GitBranch /> Git repository
                 </TabsTrigger>
@@ -831,56 +795,35 @@ function DeployForm({
             </div>
           )}
 
-          {type !== "IMAGE" && sourceKind === "upload" && (
-            <div className="space-y-2">
-              <label
-                className={cn(
-                  "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-8 text-center text-sm transition-colors hover:border-primary/40 hover:bg-accent/40",
-                  upload && "border-success/40 bg-success/5",
-                  uploading && "pointer-events-none opacity-60",
-                )}
-              >
-                <span className="flex size-10 items-center justify-center rounded-full bg-muted">
-                  {uploading ? (
-                    <Loader2 className="size-5 animate-spin" />
-                  ) : (
-                    <FileUp className="size-5 text-muted-foreground" />
-                  )}
-                </span>
-                {upload ? (
-                  <span>
-                    <span className="font-medium">{upload.filename}</span> ·{" "}
-                    {formatBytes(upload.size)} · {upload.analysis.files} files ·{" "}
-                    <span className="underline">replace</span>
-                  </span>
-                ) : (
-                  <span>
-                    <span className="font-medium">
-                      Upload a ZIP of your project
-                    </span>
-                    <br />
-                    <span className="text-muted-foreground">
-                      {type === "DOCKERFILE"
-                        ? "Dockerfile + source files"
-                        : "compose.yaml + Dockerfiles, source and config files"}
-                    </span>
-                  </span>
-                )}
-                <input
-                  type="file"
-                  accept=".zip"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) uploadZip(f);
-                  }}
-                />
-              </label>
-            </div>
-          )}
-
           {type !== "IMAGE" && sourceKind === "git" && (
             <div className="space-y-3">
+              {github?.connected && github.repositories.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="repo">Your GitHub repositories</Label>
+                  <SimpleSelect
+                    id="repo"
+                    placeholder="Choose a repository…"
+                    value={
+                      github.repositories.some((r) => r.clone_url === gitUrl)
+                        ? gitUrl
+                        : ""
+                    }
+                    onChange={(url) => {
+                      const repo = github.repositories.find(
+                        (r) => r.clone_url === url,
+                      );
+                      const branch = repo?.default_branch || "main";
+                      setGitUrl(url);
+                      setGitBranch(branch);
+                      analyzeGit(url, branch);
+                    }}
+                    options={github.repositories.map((r) => ({
+                      value: r.clone_url,
+                      label: r.private ? `${r.full_name} (private)` : r.full_name,
+                    }))}
+                  />
+                </div>
+              )}
               <div className="grid gap-3 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
                 <div className="space-y-2">
                   <Label htmlFor="git">Repository URL</Label>
@@ -889,7 +832,10 @@ function DeployForm({
                     className="font-mono"
                     placeholder="https://github.com/user/my-app"
                     value={gitUrl}
-                    onChange={(e) => setGitUrl(e.target.value)}
+                    onChange={(e) => {
+                      setGitUrl(e.target.value);
+                      setGitAnalysis(null);
+                    }}
                   />
                 </div>
                 <div className="space-y-2">
@@ -898,13 +844,16 @@ function DeployForm({
                     id="branch"
                     className="font-mono"
                     value={gitBranch}
-                    onChange={(e) => setGitBranch(e.target.value)}
+                    onChange={(e) => {
+                      setGitBranch(e.target.value);
+                      setGitAnalysis(null);
+                    }}
                   />
                 </div>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={analyzeGit}
+                  onClick={() => analyzeGit()}
                   disabled={!gitUrl || analyzingGit}
                 >
                   {analyzingGit ? (
@@ -915,10 +864,7 @@ function DeployForm({
                   Analyze
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Public repositories over https. The machine clones it to look
-                inside.
-              </p>
+              <PrivateRepoHint github={github} />
               {gitAnalysis && (
                 <p className="text-xs text-muted-foreground">
                   Found {gitAnalysis.dockerfiles.length} Dockerfile(s) and{" "}
@@ -933,18 +879,23 @@ function DeployForm({
                   className="mt-0.5"
                 />
                 <span>
-                  <span className="block text-sm font-medium">Auto deploy</span>
+                  <span className="block text-sm font-medium">
+                    Auto deploy
+                  </span>
                   <span className="block text-xs text-muted-foreground">
-                    Redeploy automatically when {gitBranch || "the branch"} gets
-                    new commits (checked every minute).
+                    Build and redeploy when {gitBranch || "the branch"} gets
+                    new commits: checked every minute
+                    {github?.webhook_secret_set
+                      ? ", and right away on push through your GitHub App"
+                      : ""}
+                    .
                   </span>
                 </span>
               </label>
             </div>
           )}
 
-          {type === "DOCKERFILE" &&
-            (sourceKind === "upload" ? upload : gitAnalysis) && (
+          {type === "DOCKERFILE" && gitAnalysis && (
               <div className="space-y-2">
                 <Label>Dockerfile</Label>
                 {dockerfiles.length === 0 ? (
@@ -969,21 +920,19 @@ function DeployForm({
             )}
 
           {type === "COMPOSE" &&
-            sourceKind !== "inline" &&
-            (sourceKind === "upload" ? upload : gitAnalysis) && (
+            sourceKind === "git" &&
+            gitAnalysis &&
+            gitAnalysis.compose_files.length > 0 && (
               <div className="space-y-2">
                 <Label>Compose file</Label>
-                {((sourceKind === "upload" ? upload?.analysis : gitAnalysis)
-                  ?.compose_files.length ?? 0) > 0 ? (
-                  <SimpleSelect
-                    value={path}
-                    onChange={setPath}
-                    options={(
-                      (sourceKind === "upload" ? upload?.analysis : gitAnalysis)
-                        ?.compose_files ?? []
-                    ).map((f) => ({ value: f, label: f }))}
-                  />
-                ) : null}
+                <SimpleSelect
+                  value={path}
+                  onChange={setPath}
+                  options={gitAnalysis.compose_files.map((f) => ({
+                    value: f,
+                    label: f,
+                  }))}
+                />
               </div>
             )}
           {type === "COMPOSE" && composeError && (
@@ -1544,5 +1493,53 @@ function SectionIcon({ icon: Icon }: { icon: typeof Box }) {
     <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
       <Icon className="size-4" />
     </span>
+  );
+}
+
+// Explains how private repositories work, depending on whether the user
+// has connected a GitHub App.
+function PrivateRepoHint({ github }: { github: GitHubStatus | null }) {
+  if (!github?.connected) {
+    return (
+      <p className="flex gap-1.5 text-xs text-muted-foreground">
+        <Lock className="mt-px size-3.5 shrink-0" />
+        <span>
+          Public repositories work as is. For a private GitHub repository,{" "}
+          <Link
+            href="/settings#github"
+            className="font-medium text-primary hover:underline"
+          >
+            connect a GitHub App in Settings
+          </Link>{" "}
+          (step-by-step guide included), then install it on the repository.
+        </span>
+      </p>
+    );
+  }
+  const manage = github.installations[0]?.html_url ?? github.install_url;
+  return (
+    <p className="flex gap-1.5 text-xs text-muted-foreground">
+      <Lock className="mt-px size-3.5 shrink-0" />
+      <span>
+        Private repositories are read through your GitHub App{" "}
+        <b>{github.name}</b>.{" "}
+        {github.error ? (
+          <span className="text-destructive">{github.error}</span>
+        ) : (
+          <>
+            Repository missing?{" "}
+            <a
+              href={manage}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-primary hover:underline"
+            >
+              Give the app access to it on GitHub
+            </a>
+            , then reload this page.
+          </>
+        )}
+      </span>
+    </p>
   );
 }

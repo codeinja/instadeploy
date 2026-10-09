@@ -94,7 +94,7 @@ services:
 
 volumes:
   pgdata:
-  # The secrets encryption key and uploaded build contexts.
+  # The secrets encryption key.
   # Back this up together with pgdata.
   backend-data:
   frontend-data:

@@ -243,26 +243,17 @@ func (a *Agent) buildFromSource(ctx context.Context, d *Deployment, logs *logShi
 	return commit, nil
 }
 
-// fetchSource puts the project files into dir: an uploaded ZIP or a Git
-// clone. Returns the Git commit, if any.
+// fetchSource puts the project files into dir: a Git clone, or an inline
+// Compose file. Returns the Git commit, if any.
 func (a *Agent) fetchSource(ctx context.Context, src *Source, dir string, logs *logShipper) (string, error) {
 	switch {
 	case src == nil:
 		return "", userErr("this deployment has no source files")
 	case src.Kind == "upload":
-		logs.Build("Downloading build context...")
-		zipPath := dir + ".zip"
-		defer os.Remove(zipPath)
-		if err := a.api.Download(ctx, src.DownloadURL, zipPath); err != nil {
-			return "", userErr("Could not download the build context: %v", err)
-		}
-		if err := extractZip(zipPath, src.Root, dir); err != nil {
-			return "", userErr("%v", err)
-		}
-		return "", nil
+		return "", userErr("ZIP uploads are no longer supported. Switch this deployment to a Git repository.")
 	case src.Kind == "git":
 		logs.Build(fmt.Sprintf("Cloning %s (%s)...", src.GitURL, src.GitRef))
-		commit, err := gitClone(ctx, src.GitURL, src.GitRef, src.GitCommit, dir, logs.Build)
+		commit, err := gitClone(ctx, src.GitURL, src.GitRef, src.GitCommit, src.GitToken, dir, logs.Build)
 		if err != nil {
 			return "", userErr("Could not clone the repository: %v", err)
 		}
@@ -600,14 +591,14 @@ type composeServiceInfo struct {
 }
 
 // analyzeGit clones a repository and reports its Dockerfiles and Compose
-// services, in the same shape as the backend's upload analysis.
+// services for the deploy form.
 func (a *Agent) analyzeGit(ctx context.Context, in *AnalyzeInput) (map[string]any, error) {
 	dir, err := os.MkdirTemp(a.workDir("builds"), "analyze-")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	if _, err := gitClone(ctx, in.GitURL, in.GitRef, in.GitCommit, dir, nil); err != nil {
+	if _, err := gitClone(ctx, in.GitURL, in.GitRef, in.GitCommit, in.GitToken, dir, nil); err != nil {
 		return nil, userErr("Could not clone the repository: %v", err)
 	}
 

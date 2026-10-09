@@ -141,9 +141,17 @@ func buildImage(ctx context.Context, contextDir, dockerfile, tag string, auths [
 }
 
 // gitClone makes a shallow clone of one branch, then checks out the exact
-// commit the backend resolved (if given).
-func gitClone(ctx context.Context, url, branch, commit, dest string, onLine func(string)) (string, error) {
-	err := command{name: "git", args: []string{"clone", "--depth", "1", "--branch", branch, "--single-branch", "--", url, dest}, onLine: onLine}.run(ctx)
+// commit the backend resolved (if given). token, if set, is a short-lived
+// GitHub installation token for a private repository. It's passed through
+// the environment (not the URL or arguments), so it never shows up in the
+// process list, git's output or the clone's .git/config.
+func gitClone(ctx context.Context, url, branch, commit, token, dest string, onLine func(string)) (string, error) {
+	var env []string
+	if token != "" {
+		auth := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+		env = []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=http.extraHeader", "GIT_CONFIG_VALUE_0=Authorization: Basic " + auth}
+	}
+	err := command{name: "git", args: []string{"clone", "--depth", "1", "--branch", branch, "--single-branch", "--", url, dest}, env: env, onLine: onLine}.run(ctx)
 	if err != nil {
 		return "", fmt.Errorf("git clone failed: %w", err)
 	}
@@ -154,7 +162,7 @@ func gitClone(ctx context.Context, url, branch, commit, dest string, onLine func
 	got := strings.TrimSpace(string(head))
 	if commit != "" && got != commit {
 		// The branch moved since the backend looked; fetch the exact commit.
-		if err := (command{name: "git", args: []string{"fetch", "--depth", "1", "origin", commit}, dir: dest, onLine: onLine}).run(ctx); err != nil {
+		if err := (command{name: "git", args: []string{"fetch", "--depth", "1", "origin", commit}, dir: dest, env: env, onLine: onLine}).run(ctx); err != nil {
 			return "", fmt.Errorf("could not fetch commit %s: %w", commit, err)
 		}
 		if err := (command{name: "git", args: []string{"checkout", "--detach", commit}, dir: dest}).run(ctx); err != nil {

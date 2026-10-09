@@ -47,8 +47,8 @@ export interface VolumeSpec {
 }
 
 export interface Source {
-  kind: "upload" | "git" | "inline";
-  upload_id?: string;
+  // "upload" only appears on deployments made before ZIP uploads were removed.
+  kind: "git" | "inline" | "upload";
   git_url?: string;
   git_branch?: string;
   path?: string;
@@ -250,11 +250,37 @@ export interface SourceAnalysis {
   git_commit?: string;
 }
 
-export interface UploadResult {
-  id: string;
-  filename: string;
-  size: number;
-  analysis: SourceAnalysis;
+// The user's GitHub App (Settings > GitHub), for private repositories and
+// push webhooks.
+export interface GitHubRepo {
+  full_name: string;
+  clone_url: string;
+  default_branch: string;
+  private: boolean;
+}
+
+export interface GitHubInstallation {
+  id: number;
+  account: string;
+  repository_selection: "all" | "selected";
+  html_url: string;
+}
+
+export interface GitHubStatus {
+  connected: boolean;
+  app_id?: number;
+  slug?: string;
+  name?: string;
+  owner?: string;
+  html_url?: string;
+  install_url?: string;
+  webhook_secret_set: boolean;
+  installations: GitHubInstallation[];
+  repositories: GitHubRepo[];
+  repositories_truncated?: boolean;
+  error?: string;
+  poll_every_seconds: number;
+  webhook_path: string;
 }
 
 export interface ServerSettings {

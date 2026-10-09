@@ -125,14 +125,15 @@ type AgentDeployment struct {
 }
 
 type AgentSource struct {
-	Kind        string `json:"kind"`
-	DownloadURL string `json:"download_url,omitempty"` // upload: GET with the agent token
-	Root        string `json:"root,omitempty"`         // upload: folder inside the ZIP to use
-	GitURL      string `json:"git_url,omitempty"`
-	GitRef      string `json:"git_branch,omitempty"`
-	GitCommit   string `json:"git_commit,omitempty"`
-	Path        string `json:"path,omitempty"`
-	Compose     string `json:"compose,omitempty"`
+	Kind      string `json:"kind"`
+	GitURL    string `json:"git_url,omitempty"`
+	GitRef    string `json:"git_branch,omitempty"`
+	GitCommit string `json:"git_commit,omitempty"`
+	// Read-only GitHub installation token for private repositories, minted
+	// when the task is handed out (it expires within the hour).
+	GitToken string `json:"git_token,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Compose  string `json:"compose,omitempty"`
 }
 
 type AgentService struct {
@@ -167,6 +168,8 @@ type AgentAnalyze struct {
 	GitURL    string `json:"git_url"`
 	GitRef    string `json:"git_branch"`
 	GitCommit string `json:"git_commit"`
+	// Set when the task is handed out, never stored (see AgentSource).
+	GitToken string `json:"git_token,omitempty"`
 }
 
 type taskRow struct {
@@ -213,7 +216,7 @@ func (s *Server) dispatchTasks(ctx context.Context, agentID string) ([]AgentTask
 
 	var out []AgentTask
 	for _, t := range ready {
-		task, err := s.materialize(ctx, t)
+		task, err := s.materialize(ctx, agentID, t)
 		if err != nil {
 			log.Printf("task %s: %v", t.ID, err)
 			tx.ExecContext(ctx, `UPDATE agent_tasks SET status = 'FAILED', error = $1, finished_at = now() WHERE id = $2`, err.Error(), t.ID)
@@ -232,12 +235,21 @@ func (s *Server) dispatchTasks(ctx context.Context, agentID string) ([]AgentTask
 
 // materialize turns a task row into what the agent needs, resolving
 // variables, secrets and registry credentials.
-func (s *Server) materialize(ctx context.Context, t taskRow) (AgentTask, error) {
+func (s *Server) materialize(ctx context.Context, agentID string, t taskRow) (AgentTask, error) {
 	task := AgentTask{ID: t.ID, Type: t.Type}
 	switch t.Type {
 	case TaskAnalyze:
 		var a AgentAnalyze
 		json.Unmarshal(t.Payload, &a)
+		var uid string
+		if err := s.db.QueryRowContext(ctx, `SELECT user_id FROM agents WHERE id = $1`, agentID).Scan(&uid); err != nil {
+			return task, err
+		}
+		token, err := s.gitToken(ctx, uid, a.GitURL)
+		if err != nil {
+			return task, fmt.Errorf("GitHub App: %w", err)
+		}
+		a.GitToken = token
 		task.Analyze = &a
 		return task, nil
 	case TaskLogs:
@@ -336,11 +348,11 @@ func (s *Server) fillDeployPayload(ctx context.Context, d *Deployment, spec Spec
 	if src := spec.Source; src != nil {
 		as := &AgentSource{Kind: src.Kind, Path: src.Path, Compose: src.Compose}
 		switch src.Kind {
-		case "upload":
-			as.DownloadURL = "/api/agent/uploads/" + src.UploadID
-			s.db.QueryRowContext(ctx, `SELECT COALESCE(analysis->>'root', '') FROM uploads WHERE id = $1`, src.UploadID).Scan(&as.Root)
 		case "git":
 			as.GitURL, as.GitRef, as.GitCommit = src.GitURL, src.GitRef, rev.GitCommit
+			if as.GitToken, err = s.gitToken(ctx, d.userID, src.GitURL); err != nil {
+				return fmt.Errorf("GitHub App: %w", err)
+			}
 		}
 		ad.Source = as
 	}

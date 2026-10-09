@@ -46,7 +46,7 @@ Your machine never opens a port: traffic arrives through an outbound tunnel powe
 ### 📦 Deploy anything
 - **App Store**: 36 one-click apps (Immich, Jellyfin, Nextcloud, Vaultwarden, n8n…)
 - **Docker images** from any registry, including private ones
-- **Dockerfiles** from a ZIP upload or a Git repo
+- **Dockerfiles** from a Git repo, public or private (GitHub App)
 - **Docker Compose** multi-service projects
 - **Paste a `docker run` command** straight from a README
 
@@ -69,7 +69,7 @@ Your machine never opens a port: traffic arrives through an outbound tunnel powe
 - **Live build and deployment logs**, plus container logs
 - **One-click rollback** to any earlier version
 - **Health checks** and CPU, memory and network usage
-- **Git auto deploy** on new commits
+- **Continuous deployment**: new commits are built and deployed (instantly on push, or polled every minute)
 - **⌘K command palette** to jump anywhere
 
 </td>
@@ -171,7 +171,7 @@ For production, add a `.env` next to `docker-compose.yml` ([example](.env.exampl
 | --- | --- |
 | `BETTER_AUTH_URL` | Dashboard served over HTTPS, e.g. `https://deploy.example.com` |
 | `BETTER_AUTH_SECRET`, `SECRETS_KEY` | Supply your own secrets instead of generated ones |
-| `MAX_UPLOAD_MB`, `GIT_POLL_SECONDS` | Upload size limit and Git polling interval |
+| `GIT_POLL_SECONDS` | How often auto-deploy Git deployments check for new commits (default 60) |
 
 ## 🛡️ Security
 

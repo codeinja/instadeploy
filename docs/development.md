@@ -102,7 +102,8 @@ Run these before committing:
 | `pangolin.go` | `PangolinService`, the only Pangolin-specific code |
 | `apps.go`, `catalog.yaml` | App Store |
 | `dockerrun.go` | `docker run` → Compose converter |
-| `analyze.go`, `registry.go`, `git.go` | Compose/ZIP analysis, registry inspection, Git branches |
+| `analyze.go`, `registry.go`, `git.go` | Compose analysis, registry inspection, Git branches and auto-deploy polling |
+| `github.go` | GitHub App: installation tokens for private repositories, repository list, push webhooks |
 | `crypto.go` | AES-256-GCM encryption |
 | `migrations/` | SQL migrations, applied in order |
 | `openapi.yaml` | API reference served at `/docs` |
@@ -118,7 +119,7 @@ To change the schema, add `migrations/00N_<name>.sql`. Never edit an applied mig
 | `docker.go` | `DockerService`, an Engine API client |
 | `cli.go` | Fixed-argument runs of `docker build`, `docker compose` and `git` |
 | `compose.go` | Compose precheck, validation and transformation |
-| `archive.go` | Safe ZIP extraction |
+| `files.go` | Path checks and copying project files |
 | `health.go`, `logs.go` | HTTP health checks and log shipping |
 
 Rules for agent code:

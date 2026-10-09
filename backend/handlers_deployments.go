@@ -64,10 +64,6 @@ func (s *Server) handleCreateDeployment(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "auto deploy is only available for Git deployments")
 		return
 	}
-	if err := s.checkUploadOwner(ctx, uid, req.Spec.Source); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	for _, v := range req.Variables {
 		if err := validateEnvKey(v.Key); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -94,7 +90,7 @@ func (s *Server) handleCreateDeployment(w http.ResponseWriter, r *http.Request) 
 	// URL or branch fails here with a clear message.
 	gitCommit := ""
 	if req.Spec.Source != nil && req.Spec.Source.Kind == "git" {
-		if gitCommit, err = gitResolve(ctx, req.Spec.Source.GitURL, req.Spec.Source.GitRef); err != nil {
+		if gitCommit, err = s.resolveGitCommit(ctx, uid, req.Spec.Source.GitURL, req.Spec.Source.GitRef); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -158,18 +154,6 @@ func (s *Server) handleCreateDeployment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusCreated, full)
-}
-
-func (s *Server) checkUploadOwner(ctx context.Context, uid string, src *Source) error {
-	if src == nil || src.Kind != "upload" {
-		return nil
-	}
-	var ok bool
-	s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM uploads WHERE id = $1 AND user_id = $2)`, src.UploadID, uid).Scan(&ok)
-	if !ok {
-		return errors.New("upload not found; please upload the file again")
-	}
-	return nil
 }
 
 func (s *Server) handleListDeployments(w http.ResponseWriter, r *http.Request) {
@@ -239,10 +223,6 @@ func (s *Server) handleUpdateDeployment(w http.ResponseWriter, r *http.Request) 
 			req.Spec.Services[0].Name = "web"
 		}
 		if err := req.Spec.Validate(); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if err := s.checkUploadOwner(ctx, d.userID, req.Spec.Source); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
