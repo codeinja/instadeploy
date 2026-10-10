@@ -305,9 +305,9 @@ func (a *Agent) deployCompose(ctx context.Context, d *Deployment, logs *logShipp
 		return nil, err
 	}
 
-	// Fetch into a fresh folder, then copy over the project folder without
-	// deleting anything, so data written by containers into the project
-	// (relative bind mounts) survives redeploys.
+	// Fetch into a fresh folder, then sync it over the project folder: files
+	// removed from the source since the last deploy are deleted, while data
+	// written by containers into the project (relative bind mounts) survives.
 	staging, err := os.MkdirTemp(a.workDir("builds"), "compose-")
 	if err != nil {
 		return nil, err
@@ -316,7 +316,7 @@ func (a *Agent) deployCompose(ctx context.Context, d *Deployment, logs *logShipp
 	if res.GitCommit, err = a.fetchSource(ctx, d.Source, staging, logs); err != nil {
 		return nil, err
 	}
-	if err := copyTree(staging, projectDir); err != nil {
+	if err := syncTree(staging, projectDir); err != nil {
 		return nil, err
 	}
 
