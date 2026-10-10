@@ -9,6 +9,12 @@
 # Rules: no host folders, no host network, no privileged containers
 # (the agent would refuse them). Use named volumes for data.
 #
+# auth says how the app protects itself, shown before it's made public:
+#   login  it has a login with credentials set at deploy time (or its own)
+#   setup  the first visitor creates the admin account or runs a wizard
+#   none   no login: anyone with the URL can use it
+# auth_note adds one sentence of detail.
+#
 # To add an app: copy an entry, check the image's port, and test it.
 
 - id: paperless-ngx
@@ -21,6 +27,7 @@
     Turns your physical documents into a searchable online archive with OCR,
     tags and automatic matching. Runs with PostgreSQL and Redis.
   public: { service: webserver, port: 8000 }
+  auth: login
   inputs:
     - { key: PAPERLESS_ADMIN_USER, label: Admin username, default: admin }
     - { key: PAPERLESS_ADMIN_PASSWORD, label: Admin password, generate: password, secret: true }
@@ -84,6 +91,7 @@
     search and shared albums. Needs about 4 GB of RAM; the first start
     downloads machine-learning models.
   public: { service: immich-server, port: 2283 }
+  auth: setup
   inputs:
     - { key: TZ, label: Time zone, default: "{tz}" }
     - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
@@ -138,6 +146,8 @@
     and browsers. Media lives in the "media" volume; to use an existing
     folder on the machine, allow it on the agent and edit the Compose file.
   public: { service: jellyfin, port: 8096 }
+  auth: setup
+  auth_note: "The first visitor runs the setup wizard and creates the admin account."
   inputs: []
   compose: |
     services:
@@ -165,6 +175,7 @@
     File sync and sharing with a huge app ecosystem (calendar, contacts,
     office, notes). Runs with MariaDB and Redis.
   public: { service: app, port: 80 }
+  auth: login
   inputs:
     - { key: NEXTCLOUD_ADMIN_USER, label: Admin username, default: admin }
     - { key: NEXTCLOUD_ADMIN_PASSWORD, label: Admin password, generate: password, secret: true }
@@ -220,6 +231,8 @@
     A lightweight server for the official Bitwarden apps and browser
     extensions. Turn sign-ups off after creating your account.
   public: { service: vaultwarden, port: 80 }
+  auth: login
+  auth_note: "Anyone can create an account while \"Allow new sign-ups\" is true."
   inputs:
     - { key: SIGNUPS_ALLOWED, label: Allow new sign-ups, default: "true", description: "true or false" }
     - { key: ADMIN_TOKEN, label: Admin panel token, generate: secret, secret: true, description: "Opens /admin" }
@@ -247,6 +260,7 @@
     A friendly monitoring tool: HTTP, TCP, ping and more, with status pages
     and notifications to dozens of services.
   public: { service: uptime-kuma, port: 3001 }
+  auth: setup
   inputs: []
   notes: Create your admin account the first time you open it.
   compose: |
@@ -269,6 +283,8 @@
     Connect apps and automate workflows visually, with code when you need
     it. Webhooks use the app's public URL.
   public: { service: n8n, port: 5678 }
+  auth: setup
+  auth_note: "The first visitor creates the owner account."
   inputs:
     - { key: TZ, label: Time zone, default: "{tz}" }
     - { key: N8N_ENCRYPTION_KEY, generate: secret, secret: true, hidden: true }
@@ -301,6 +317,8 @@
     machine through Ollama. Runs on CPU; pull models from the admin
     settings. Needs plenty of RAM for larger models.
   public: { service: open-webui, port: 8080 }
+  auth: setup
+  auth_note: "The first account to sign up becomes the admin."
   inputs:
     - { key: WEBUI_SECRET_KEY, generate: secret, secret: true, hidden: true }
   notes: Create your admin account the first time you open it.
@@ -335,6 +353,8 @@
     Host Git repositories with issues, pull requests, CI (Actions) and a
     package registry. Runs with PostgreSQL. Cloning works over HTTPS.
   public: { service: gitea, port: 3000 }
+  auth: setup
+  auth_note: "The first visitor completes the installation page and can create the admin account."
   inputs:
     - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
   notes: Finish the installation page on first visit (the database is already set up).
@@ -378,6 +398,7 @@
   tagline: Dashboards for metrics and logs
   description: Beautiful dashboards for Prometheus, Loki, InfluxDB, PostgreSQL and many more data sources.
   public: { service: grafana, port: 3000 }
+  auth: login
   inputs:
     - { key: GF_SECURITY_ADMIN_USER, label: Admin username, default: admin }
     - { key: GF_SECURITY_ADMIN_PASSWORD, label: Admin password, generate: password, secret: true }
@@ -403,6 +424,8 @@
   tagline: Publishing platform for blogs and newsletters
   description: Write, publish and send newsletters with a clean editor. Runs with MySQL.
   public: { service: ghost, port: 2368 }
+  auth: setup
+  auth_note: "The site is meant to be public; the admin area (/ghost) is claimed by whoever creates the first account."
   inputs:
     - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
   notes: Open /ghost on your site to create the admin account.
@@ -442,6 +465,8 @@
   tagline: The world's most popular website builder
   description: Blogs, business sites and online shops with thousands of themes and plugins. Runs with MariaDB.
   public: { service: wordpress, port: 80 }
+  auth: setup
+  auth_note: "The first visitor chooses the site title and admin account."
   inputs:
     - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
   notes: Choose your site title and admin account on first visit.
@@ -484,6 +509,8 @@
   tagline: Recipe manager and meal planner
   description: Import recipes from any website, plan meals and build shopping lists for the household.
   public: { service: mealie, port: 9000 }
+  auth: setup
+  auth_note: "It starts with a default login that anyone can look up. Change it right after deploying."
   inputs:
     - { key: TZ, label: Time zone, default: "{tz}" }
   notes: "Default login: changeme@example.com / MyPassword (change it right away)."
@@ -509,6 +536,7 @@
   tagline: Your music collection, streamed anywhere
   description: A modern music server compatible with Subsonic apps. Put your music in the "music" volume.
   public: { service: navidrome, port: 4533 }
+  auth: setup
   inputs: []
   notes: Create your admin account the first time you open it.
   compose: |
@@ -531,6 +559,7 @@
   tagline: Audiobook and podcast server
   description: Stream audiobooks and podcasts with progress sync and mobile apps.
   public: { service: audiobookshelf, port: 80 }
+  auth: setup
   inputs: []
   notes: Create your admin account the first time you open it.
   compose: |
@@ -557,6 +586,8 @@
   tagline: Fast, self-hosted RSS reader
   description: Follow websites and news feeds in one place, with apps and browser extensions.
   public: { service: freshrss, port: 80 }
+  auth: setup
+  auth_note: "The first visitor runs the setup wizard."
   inputs:
     - { key: TZ, label: Time zone, default: "{tz}" }
   notes: Finish the setup wizard on first visit.
@@ -584,6 +615,8 @@
   tagline: Privacy-first personal budgeting
   description: Envelope-style budgeting with bank sync options, synced across your devices.
   public: { service: actual, port: 5006 }
+  auth: setup
+  auth_note: "The first visitor sets the server password."
   inputs: []
   compose: |
     services:
@@ -603,6 +636,8 @@
   tagline: Every PDF tool you need, locally
   description: Merge, split, convert, compress, sign and OCR PDFs, without uploading them anywhere else.
   public: { service: stirling-pdf, port: 8080 }
+  auth: none
+  auth_note: "Login is turned off, so anyone with the URL can use it."
   inputs: []
   compose: |
     services:
@@ -624,6 +659,8 @@
   tagline: Handy tools for developers
   description: Converters, generators, encoders, network calculators and dozens more small developer utilities.
   public: { service: it-tools, port: 80 }
+  auth: none
+  auth_note: "No login. Anyone with the URL can use it (it stores no data)."
   inputs: []
   compose: |
     services:
@@ -639,6 +676,8 @@
   tagline: Hand-drawn style whiteboard
   description: Sketch diagrams and wireframes that look hand-drawn. Drawings are kept in your browser.
   public: { service: excalidraw, port: 80 }
+  auth: none
+  auth_note: "No login. Anyone with the URL can use it."
   inputs: []
   compose: |
     services:
@@ -654,6 +693,7 @@
   tagline: Lightweight notes and memos
   description: A quick, Markdown-friendly place for notes, ideas and snippets.
   public: { service: memos, port: 5230 }
+  auth: setup
   inputs: []
   notes: Create your admin account the first time you open it.
   compose: |
@@ -674,6 +714,7 @@
   tagline: Minimal bookmark manager
   description: Save, tag and search bookmarks, with browser extensions and an API.
   public: { service: linkding, port: 9090 }
+  auth: login
   inputs:
     - { key: LD_SUPERUSER_NAME, label: Admin username, default: admin }
     - { key: LD_SUPERUSER_PASSWORD, label: Admin password, generate: password, secret: true }
@@ -699,6 +740,8 @@
   tagline: A start page for all your services
   description: A fast, customizable dashboard with widgets for your apps, bookmarks and search. Configure it with YAML files in the config volume.
   public: { service: homepage, port: 3000 }
+  auth: none
+  auth_note: "No login. Anyone with the URL can see your dashboard and its links."
   inputs: []
   compose: |
     services:
@@ -720,6 +763,8 @@
   tagline: VS Code in your browser
   description: A full VS Code editor running on your machine, reachable from any browser.
   public: { service: code-server, port: 8443 }
+  auth: login
+  auth_note: "Protected by the password above. It's a full terminal on the container, so keep the password strong."
   inputs:
     - { key: PASSWORD, label: Password, generate: password, secret: true }
     - { key: TZ, label: Time zone, default: "{tz}" }
@@ -746,6 +791,8 @@
   tagline: Simple, privacy-friendly web analytics
   description: A Google Analytics alternative without cookies. Runs with PostgreSQL.
   public: { service: umami, port: 3000 }
+  auth: setup
+  auth_note: "It starts with a default login (admin / umami) that anyone can look up. Change it right after deploying."
   inputs:
     - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
     - { key: APP_SECRET, generate: secret, secret: true, hidden: true }
@@ -780,6 +827,7 @@
   tagline: AI-powered photo library
   description: Browse, organize and share your photo collection with automatic tagging and maps. Runs with MariaDB.
   public: { service: photoprism, port: 2342 }
+  auth: login
   inputs:
     - { key: PHOTOPRISM_ADMIN_PASSWORD, label: Admin password (user "admin"), generate: password, secret: true }
     - { key: DB_PASSWORD, generate: password, secret: true, hidden: true }
@@ -826,6 +874,7 @@
   tagline: Reader for manga, comics and books
   description: Read and organize ebooks, comics and manga in the browser. Put your library in the "library" volume.
   public: { service: kavita, port: 5000 }
+  auth: setup
   inputs: []
   notes: Create your admin account the first time you open it.
   compose: |
@@ -850,6 +899,8 @@
     Keep folders in sync between devices, peer to peer. The web UI is
     public, so set a GUI password right away. Syncing uses Syncthing's relays.
   public: { service: syncthing, port: 8384 }
+  auth: none
+  auth_note: "The web interface has no password until you set one in its settings."
   inputs: []
   compose: |
     services:
@@ -869,6 +920,8 @@
   tagline: Torrent client with a web interface
   description: Download torrents on your machine from anywhere. The first password is printed in the container logs.
   public: { service: qbittorrent, port: 8080 }
+  auth: login
+  auth_note: "A temporary admin password is printed in the container logs on first start."
   inputs:
     - { key: TZ, label: Time zone, default: "{tz}" }
   compose: |
@@ -896,6 +949,8 @@
   tagline: Web file manager
   description: Upload, download, preview and share files from the "files" volume. The first admin password is printed in the container logs.
   public: { service: filebrowser, port: 80 }
+  auth: login
+  auth_note: "The initial admin password is printed in the container logs on first start."
   inputs: []
   compose: |
     services:
@@ -923,6 +978,8 @@
     A PostgreSQL 17 database with Adminer to browse and edit it in the
     browser. The database itself stays private.
   public: { service: adminer, port: 8080 }
+  auth: login
+  auth_note: "Adminer asks for the database username and password."
   inputs:
     - { key: POSTGRES_USER, label: Database user, default: postgres }
     - { key: POSTGRES_PASSWORD, label: Database password, generate: password, secret: true }
@@ -955,6 +1012,8 @@
   tagline: MySQL-compatible database with a web admin
   description: A MariaDB 11 database with Adminer to browse and edit it. The database stays private.
   public: { service: adminer, port: 8080 }
+  auth: login
+  auth_note: "Adminer asks for the database username and password."
   inputs:
     - { key: MARIADB_USER, label: Database user, default: app }
     - { key: MARIADB_PASSWORD, label: Database password, generate: password, secret: true }
@@ -989,6 +1048,7 @@
   tagline: MongoDB with a web admin
   description: A MongoDB 8 database with Mongo Express to browse collections. The database stays private.
   public: { service: mongo-express, port: 8081 }
+  auth: login
   inputs:
     - { key: MONGO_PASSWORD, label: Database password (user "root"), generate: password, secret: true }
     - { key: ME_PASSWORD, label: Mongo Express password (user "admin"), generate: password, secret: true }
@@ -1022,6 +1082,8 @@
   tagline: Redis with a visual browser
   description: A Redis 7 server with Redis Insight to explore keys and run commands. Redis stays private.
   public: { service: redisinsight, port: 5540 }
+  auth: none
+  auth_note: "No login. Anyone with the URL can read and change the Redis data."
   inputs: []
   notes: In Redis Insight, add a database with host "redis" and port 6379.
   compose: |
@@ -1048,6 +1110,7 @@
   tagline: Message broker with management UI
   description: A RabbitMQ broker with its management console. AMQP stays private to the project.
   public: { service: rabbitmq, port: 15672 }
+  auth: login
   inputs:
     - { key: RABBITMQ_DEFAULT_USER, label: Admin user, default: admin }
     - { key: RABBITMQ_DEFAULT_PASS, label: Admin password, generate: password, secret: true }
@@ -1072,6 +1135,8 @@
   tagline: A web server for static sites
   description: Serves files from the "html" volume. A quick way to see Insta Deploy work end to end.
   public: { service: nginx, port: 80 }
+  auth: none
+  auth_note: "A static website, meant to be public."
   inputs: []
   compose: |
     services:

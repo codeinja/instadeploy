@@ -296,6 +296,15 @@ paths:
                       value: { type: string }
                       secret: { type: boolean }
                       service: { type: string }
+                access:
+                  type: array
+                  description: Optional access protection for public services (password or 6-digit PIN asked by Pangolin)
+                  items:
+                    type: object
+                    properties:
+                      service: { type: string }
+                      mode: { type: string, enum: [none, password, pincode] }
+                      secret: { type: string }
             example:
               agent_id: "..."
               name: nginx
@@ -361,7 +370,7 @@ paths:
   /api/deployments/{id}/services/{service}:
     patch:
       tags: [Services & logs]
-      summary: Make a service public/private, change its port or health check
+      summary: Make a service public/private, change its port, health check or access protection
       parameters:
         - { $ref: "#/components/parameters/id" }
         - { name: service, in: path, required: true, schema: { type: string } }
@@ -375,6 +384,14 @@ paths:
                 port: { type: integer }
                 health_check: { type: object, properties: { path: { type: string }, interval_seconds: { type: integer } } }
                 clear_health_check: { type: boolean }
+                access:
+                  type: object
+                  description: >
+                    Protection Pangolin asks for before anyone reaches the public URL.
+                    An empty secret keeps the current one when the mode is unchanged.
+                  properties:
+                    mode: { type: string, enum: [none, password, pincode] }
+                    secret: { type: string, description: "8-100 characters for a password, exactly 6 digits for a PIN" }
       responses: { "200": { description: OK } }
   /api/deployments/{id}/services/{service}/logs:
     get:

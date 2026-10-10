@@ -4,9 +4,17 @@ export type AgentStatus = "ONLINE" | "OFFLINE" | "REVOKED";
 
 export type DeploymentType = "IMAGE" | "DOCKERFILE" | "COMPOSE";
 
-export type DeploymentStatus = "QUEUED" | "BUILDING" | "DEPLOYING" | "RUNNING" | "STOPPED" | "FAILED" | "DELETING";
+export type DeploymentStatus =
+  | "QUEUED"
+  | "BUILDING"
+  | "DEPLOYING"
+  | "RUNNING"
+  | "STOPPED"
+  | "FAILED"
+  | "DELETING";
 
-export type RouteStatus = "PENDING" | "CREATING" | "READY" | "FAILED" | "DISABLED";
+export type RouteStatus =
+  "PENDING" | "CREATING" | "READY" | "FAILED" | "DISABLED";
 
 export type Health = "HEALTHY" | "UNHEALTHY" | "STARTING" | "NONE";
 
@@ -38,6 +46,21 @@ export interface ServiceSpec {
   port?: number;
   public: boolean;
   health_check?: HealthCheck;
+  // What's known about the app's own login (App Store apps).
+  auth_hint?: AuthHint;
+}
+
+// How an app protects itself: its own login, a first-visitor setup that
+// claims it, or nothing at all.
+export type AuthHint = "login" | "setup" | "none";
+
+// Protection Pangolin puts in front of a public URL.
+export type AccessMode = "none" | "password" | "pincode";
+
+export interface AccessInput {
+  service: string;
+  mode: AccessMode;
+  secret?: string;
 }
 
 export interface VolumeSpec {
@@ -91,6 +114,7 @@ export interface Service {
   image: string;
   port: number | null;
   public: boolean;
+  access: AccessMode;
   target_host: string;
   container_id: string;
   state: string;
@@ -322,6 +346,8 @@ export interface CatalogApp {
   tagline: string;
   description: string;
   notes?: string;
+  auth: AuthHint;
+  auth_note?: string;
   public: { service: string; port: number };
   inputs: CatalogInput[];
   compose: string;
@@ -344,6 +370,8 @@ export interface ComposeDraft {
   env: { key: string; value: string; secret: boolean }[];
   publicService?: string;
   port?: number;
+  authHint?: AuthHint;
+  authNote?: string;
   warnings?: string[];
   source?: string;
 }

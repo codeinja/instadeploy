@@ -28,6 +28,8 @@ type createDeploymentRequest struct {
 	AutoDeploy  bool            `json:"auto_deploy"`
 	Spec        Spec            `json:"spec"`
 	Variables   []variableInput `json:"variables"`
+	// Optional access protection for public services.
+	Access []accessInput `json:"access"`
 }
 
 func (s *Server) handleCreateDeployment(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +65,12 @@ func (s *Server) handleCreateDeployment(w http.ResponseWriter, r *http.Request) 
 	if req.AutoDeploy && (req.Spec.Source == nil || req.Spec.Source.Kind != "git") {
 		writeError(w, http.StatusBadRequest, "auto deploy is only available for Git deployments")
 		return
+	}
+	for _, a := range req.Access {
+		if err := validateAccess(a.Mode, a.Secret); err != nil {
+			writeError(w, http.StatusBadRequest, a.Service+": "+err.Error())
+			return
+		}
 	}
 	for _, v := range req.Variables {
 		if err := validateEnvKey(v.Key); err != nil {
@@ -124,6 +132,20 @@ func (s *Server) handleCreateDeployment(w http.ResponseWriter, r *http.Request) 
 	if err := syncServices(ctx, tx, d); err != nil {
 		internalError(w, err)
 		return
+	}
+	for _, a := range req.Access {
+		if req.Spec.Type != TypeCompose {
+			a.Service = "web"
+		}
+		found, err := s.setServiceAccess(ctx, tx, d.ID, a)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if !found {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("access: there is no service called %q", a.Service))
+			return
+		}
 	}
 	for _, v := range req.Variables {
 		var svc any
@@ -291,6 +313,8 @@ func (s *Server) handleUpdateService(w http.ResponseWriter, r *http.Request) {
 		HealthCheck *HealthCheck `json:"health_check"`
 		// Set to remove the health check.
 		ClearHealthCheck bool `json:"clear_health_check"`
+		// Access protection: {"mode": "password", "secret": "..."}.
+		Access *accessInput `json:"access"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -331,6 +355,19 @@ func (s *Server) handleUpdateService(w http.ResponseWriter, r *http.Request) {
 	if err := syncServices(r.Context(), s.db, d); err != nil {
 		internalError(w, err)
 		return
+	}
+	if req.Access != nil {
+		req.Access.Service = name
+		if _, err := s.setServiceAccess(r.Context(), s.db, d.ID, *req.Access); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		msg := map[string]string{
+			AccessNone:     "%s / %s: access protection removed",
+			AccessPassword: "%s / %s is now protected with a password",
+			AccessPincode:  "%s / %s is now protected with a PIN",
+		}[req.Access.Mode]
+		s.event(r.Context(), d.userID, "info", fmt.Sprintf(msg, d.Name, name), withDeployment(d))
 	}
 	needsRedeploy := (d.Type == TypeCompose && wasPublic != svc.Public) || req.HealthCheck != nil || req.ClearHealthCheck
 	if needsRedeploy && d.Status != StatusStopped {

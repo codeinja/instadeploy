@@ -246,6 +246,29 @@ func (p *PangolinService) UpdateRoute(ctx context.Context, ref string, target Ro
 	return p.do(ctx, "POST", fmt.Sprintf("/target/%d", targets.Targets[0].TargetID), body, nil)
 }
 
+// SetRouteAccess puts Pangolin's sign-in page in front of a route: a
+// password, a 6-digit PIN, or nothing (mode "none"). Pangolin's own user
+// login (SSO) stays off either way.
+func (p *PangolinService) SetRouteAccess(ctx context.Context, ref, mode, secret string) error {
+	if !p.Enabled() {
+		return ErrPangolinDisabled
+	}
+	var password, pincode any // nil removes it
+	switch mode {
+	case AccessPassword:
+		password = secret
+	case AccessPincode:
+		pincode = secret
+	}
+	if err := p.do(ctx, "POST", "/resource/"+ref+"/password", map[string]any{"password": password}, nil); err != nil {
+		return fmt.Errorf("set password: %w", err)
+	}
+	if err := p.do(ctx, "POST", "/resource/"+ref+"/pincode", map[string]any{"pincode": pincode}, nil); err != nil {
+		return fmt.Errorf("set PIN: %w", err)
+	}
+	return nil
+}
+
 func (p *PangolinService) DeleteRoute(ctx context.Context, ref string) error {
 	if !p.Enabled() {
 		return ErrPangolinDisabled

@@ -56,7 +56,8 @@ Your machine never opens a port: traffic arrives through an outbound tunnel powe
 ### 🌍 Public URLs, zero config
 - Automatic **HTTPS URL** for every public service
 - **Custom domains** with guided DNS setup
-- Choose which services are **public or private**
+- **Private by default**: you choose what goes public
+- Optional **password or PIN** in front of any app
 - **No open ports**: everything flows through an outbound tunnel
 - Works behind NAT, CGNAT and firewalls
 
@@ -177,6 +178,9 @@ For production, add a `.env` next to `docker-compose.yml` ([example](.env.exampl
 
 > ⚠️ **The agent controls Docker on its machine.** Only connect machines you trust this server with.
 
+- **Private by default**: nothing gets a public URL until you turn it on, and the dashboard warns you first when an app has no login (or can be claimed by the first visitor).
+- **Built-in protection**: put a Pangolin password or PIN in front of any public app, shown as **Public + Protected**.
+- **HTTPS everywhere on the internet**: TLS terminates at Pangolin, then traffic travels through an encrypted WireGuard tunnel; it's plain HTTP only on the private Docker network inside your machine.
 - Agents connect **out only**, and published host ports are stripped; public access goes only through Pangolin.
 - Secrets are **encrypted at rest**, never returned by the API, and **redacted** from every log.
 - Compose files are validated: privileged mode, host networking, devices and the Docker socket are rejected.

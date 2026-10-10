@@ -57,6 +57,11 @@ import { clearDraft, readDraft, saveDraft } from "@/lib/draft";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
+import { ExposureBadge } from "@/components/exposure";
+import {
+  PublicAccessDialog,
+  type AccessChoice,
+} from "@/components/public-access-dialog";
 import { SimpleSelect } from "@/components/simple-select";
 import { EnvEditor, type EnvRow } from "@/components/env-editor";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -353,7 +358,13 @@ function DeployForm({
 
   // Single-container settings
   const [port, setPort] = useState("");
-  const [isPublic, setIsPublic] = useState(true);
+  // Private by default: going public always goes through the dialog.
+  const [isPublic, setIsPublic] = useState(false);
+  const [access, setAccess] = useState<Record<string, AccessChoice>>({});
+  const [askPublic, setAskPublic] = useState<{
+    service: string;
+    editing: boolean;
+  } | null>(null);
   const [services, setServices] = useState<ServiceRow[]>([]);
   const [env, setEnv] = useState<EnvRow[]>(draft?.env ?? []);
   const [volumes, setVolumes] = useState<{ source: string; target: string }[]>(
@@ -482,7 +493,8 @@ function DeployForm({
               image: s.image,
               build: s.build,
               ports: s.ports,
-              public: true,
+              // Suggested, but still private until the user turns it on.
+              public: false,
               port,
             };
           }
@@ -563,6 +575,8 @@ function DeployForm({
           name: s.name,
           public: s.public,
           port: s.port ? Number(s.port) : undefined,
+          auth_hint:
+            draft?.publicService === s.name ? draft.authHint : undefined,
         })),
       };
       if (services.length === 0)
@@ -620,6 +634,15 @@ function DeployForm({
           environment,
           auto_deploy: sourceKind === "git" && type !== "IMAGE" && autoDeploy,
           spec,
+          access: Object.entries(access)
+            .filter(
+              ([svc, a]) =>
+                a.mode !== "none" &&
+                (type === "COMPOSE"
+                  ? services.some((s) => s.name === svc && s.public)
+                  : isPublic),
+            )
+            .map(([svc, a]) => ({ service: svc, ...a })),
           variables: env
             .filter((v) => v.key.trim())
             .map((v) => ({
@@ -819,7 +842,9 @@ function DeployForm({
                     }}
                     options={github.repositories.map((r) => ({
                       value: r.clone_url,
-                      label: r.private ? `${r.full_name} (private)` : r.full_name,
+                      label: r.private
+                        ? `${r.full_name} (private)`
+                        : r.full_name,
                     }))}
                   />
                 </div>
@@ -879,12 +904,10 @@ function DeployForm({
                   className="mt-0.5"
                 />
                 <span>
-                  <span className="block text-sm font-medium">
-                    Auto deploy
-                  </span>
+                  <span className="block text-sm font-medium">Auto deploy</span>
                   <span className="block text-xs text-muted-foreground">
-                    Build and redeploy when {gitBranch || "the branch"} gets
-                    new commits: checked every minute
+                    Build and redeploy when {gitBranch || "the branch"} gets new
+                    commits: checked every minute
                     {github?.webhook_secret_set
                       ? ", and right away on push through your GitHub App"
                       : ""}
@@ -896,28 +919,28 @@ function DeployForm({
           )}
 
           {type === "DOCKERFILE" && gitAnalysis && (
-              <div className="space-y-2">
-                <Label>Dockerfile</Label>
-                {dockerfiles.length === 0 ? (
-                  <p className="text-sm text-destructive">
-                    No Dockerfile found in the project.
-                  </p>
-                ) : (
-                  <SimpleSelect
-                    value={path}
-                    onChange={setPath}
-                    options={dockerfiles.map((d) => ({
-                      value: d.path,
-                      label: d.path,
-                    }))}
-                  />
-                )}
-                <PortDetection
-                  ports={detectedPorts}
-                  source="the Dockerfile (EXPOSE)"
+            <div className="space-y-2">
+              <Label>Dockerfile</Label>
+              {dockerfiles.length === 0 ? (
+                <p className="text-sm text-destructive">
+                  No Dockerfile found in the project.
+                </p>
+              ) : (
+                <SimpleSelect
+                  value={path}
+                  onChange={setPath}
+                  options={dockerfiles.map((d) => ({
+                    value: d.path,
+                    label: d.path,
+                  }))}
                 />
-              </div>
-            )}
+              )}
+              <PortDetection
+                ports={detectedPorts}
+                source="the Dockerfile (EXPOSE)"
+              />
+            </div>
+          )}
 
           {type === "COMPOSE" &&
             sourceKind === "git" &&
@@ -987,17 +1010,41 @@ function DeployForm({
                           )}
                         </TableCell>
                         <TableCell>
-                          <Switch
-                            checked={s.public}
-                            onCheckedChange={(v) =>
-                              setServices(
-                                services.map((x, j) =>
-                                  j === i ? { ...x, public: v } : x,
-                                ),
+                          <div className="flex flex-col items-start gap-1">
+                            <Switch
+                              checked={s.public}
+                              onCheckedChange={(v) =>
+                                v
+                                  ? setAskPublic({
+                                      service: s.name,
+                                      editing: false,
+                                    })
+                                  : setServices(
+                                      services.map((x, j) =>
+                                        j === i ? { ...x, public: false } : x,
+                                      ),
+                                    )
+                              }
+                              aria-label={`Make ${s.name} public`}
+                            />
+                            {s.public ? (
+                              <AccessSummary
+                                choice={access[s.name]}
+                                onChange={() =>
+                                  setAskPublic({
+                                    service: s.name,
+                                    editing: true,
+                                  })
+                                }
+                              />
+                            ) : (
+                              draft?.publicService === s.name && (
+                                <span className="text-[11px] text-muted-foreground">
+                                  Suggested
+                                </span>
                               )
-                            }
-                            aria-label={`Make ${s.name} public`}
-                          />
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           {s.public && (
@@ -1101,12 +1148,26 @@ function DeployForm({
               >
                 <Switch
                   checked={isPublic}
-                  onCheckedChange={setIsPublic}
+                  onCheckedChange={(v) =>
+                    v
+                      ? setAskPublic({ service: "web", editing: false })
+                      : setIsPublic(false)
+                  }
                   className="mt-0.5"
                 />
-                <span>
+                <span className="space-y-1">
                   <span className="block text-sm font-medium">Public</span>
+                  {isPublic && (
+                    <AccessSummary
+                      choice={access.web}
+                      onChange={() =>
+                        setAskPublic({ service: "web", editing: true })
+                      }
+                    />
+                  )}
                   <span className="block text-xs text-muted-foreground">
+                    {!isPublic &&
+                      "Private by default: it runs without a URL until you turn this on. "}
                     {me ? (
                       <>
                         Get a URL like{" "}
@@ -1391,6 +1452,45 @@ function DeployForm({
           <CircleAlert className="mt-0.5 size-4 shrink-0" /> {formError}
         </p>
       )}
+      {askPublic && (
+        <PublicAccessDialog
+          open
+          onOpenChange={(o) => !o && setAskPublic(null)}
+          serviceName={
+            type === "COMPOSE" ? askPublic.service : name || "this app"
+          }
+          authHint={
+            draft?.publicService === askPublic.service
+              ? draft.authHint
+              : undefined
+          }
+          authNote={
+            draft?.publicService === askPublic.service
+              ? draft.authNote
+              : undefined
+          }
+          editing={askPublic.editing}
+          currentAccess={access[askPublic.service]?.mode ?? "none"}
+          onConfirm={(choice) => {
+            const prev = access[askPublic.service];
+            setAccess({
+              ...access,
+              // Editing without a new secret keeps the one typed before.
+              [askPublic.service]:
+                choice.mode !== "none" && !choice.secret && prev
+                  ? prev
+                  : choice,
+            });
+            if (type === "COMPOSE")
+              setServices(
+                services.map((x) =>
+                  x.name === askPublic.service ? { ...x, public: true } : x,
+                ),
+              );
+            else setIsPublic(true);
+          }}
+        />
+      )}
       <div className="sticky bottom-4 z-20 rounded-xl border bg-background/90 px-4 py-3 shadow-lg backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           <p className="hidden min-w-0 truncate text-sm text-muted-foreground sm:block">
@@ -1541,5 +1641,31 @@ function PrivateRepoHint({ github }: { github: GitHubStatus | null }) {
         )}
       </span>
     </p>
+  );
+}
+
+// The protection chosen for a public service, with a link to change it.
+function AccessSummary({
+  choice,
+  onChange,
+}: {
+  choice?: AccessChoice;
+  onChange: () => void;
+}) {
+  const mode = choice?.mode ?? "none";
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <ExposureBadge exposure={mode === "none" ? "public" : "protected"} />
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          onChange();
+        }}
+        className="text-[11px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+      >
+        {mode === "none" ? "Add protection" : "Change"}
+      </button>
+    </span>
   );
 }

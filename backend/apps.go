@@ -35,7 +35,11 @@ type App struct {
 	Tagline     string `yaml:"tagline" json:"tagline"`
 	Description string `yaml:"description" json:"description"`
 	Notes       string `yaml:"notes" json:"notes,omitempty"`
-	Public      struct {
+	// How the app protects itself: login, setup (first visitor claims it)
+	// or none. Shown before the app is made public.
+	Auth     string `yaml:"auth" json:"auth"`
+	AuthNote string `yaml:"auth_note" json:"auth_note,omitempty"`
+	Public   struct {
 		Service string `yaml:"service" json:"service"`
 		Port    int    `yaml:"port" json:"port"`
 	} `yaml:"public" json:"public"`
@@ -49,6 +53,11 @@ var appCatalog = func() []App {
 		log.Fatalf("catalog.yaml: %v", err)
 	}
 	for i := range apps {
+		switch apps[i].Auth {
+		case "login", "setup", "none":
+		default:
+			log.Fatalf("catalog.yaml: %s: auth must be login, setup or none", apps[i].ID)
+		}
 		if apps[i].Inputs == nil {
 			apps[i].Inputs = []AppInput{}
 		}

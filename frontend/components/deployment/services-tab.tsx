@@ -7,6 +7,8 @@ import { api, errorMessage } from "@/lib/api";
 import type { Deployment, Service } from "@/lib/types";
 import { formatBytes } from "@/lib/format";
 import { ContainerState, HealthBadge, RouteLink } from "@/components/status";
+import { ExposureBadge, serviceExposure } from "@/components/exposure";
+import { PublicAccessDialog } from "@/components/public-access-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,12 +47,19 @@ export function ServicesTab({
   onChanged: () => void;
 }) {
   const [healthFor, setHealthFor] = useState<Service | null>(null);
+  // The service whose public access is being turned on or changed.
+  const [accessFor, setAccessFor] = useState<{
+    s: Service;
+    editing: boolean;
+  } | null>(null);
+  const authHint = (s: Service) =>
+    d.spec.services.find((x) => x.name === s.name)?.auth_hint;
 
   async function update(
     s: Service,
     body: Record<string, unknown>,
     message: string,
-  ) {
+  ): Promise<boolean> {
     try {
       await api(`/deployments/${d.id}/services/${encodeURIComponent(s.name)}`, {
         method: "PATCH",
@@ -66,8 +75,10 @@ export function ServicesTab({
           : undefined,
       );
       onChanged();
+      return true;
     } catch (e) {
       toast.error(errorMessage(e));
+      return false;
     }
   }
 
@@ -109,6 +120,7 @@ export function ServicesTab({
               <TableHead>Service</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="w-24">Public</TableHead>
+              <TableHead>Access</TableHead>
               <TableHead className="w-32">Port</TableHead>
               <TableHead>URL</TableHead>
               <TableHead className="hidden xl:table-cell">Usage</TableHead>
@@ -150,16 +162,27 @@ export function ServicesTab({
                     onCheckedChange={(v) => {
                       if (v && !s.port)
                         return toast.error(`Set a port for ${s.name} first`);
-                      update(
-                        s,
-                        { public: v },
-                        v
-                          ? `${s.name} is now public`
-                          : `${s.name} is now private`,
-                      );
+                      // Going public always asks first.
+                      if (v) return setAccessFor({ s, editing: false });
+                      update(s, { public: false }, `${s.name} is now private`);
                     }}
                     aria-label={`Make ${s.name} public`}
                   />
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col items-start gap-1">
+                    <ExposureBadge exposure={serviceExposure(s)} />
+                    {s.public && (
+                      <button
+                        className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                        onClick={() => setAccessFor({ s, editing: true })}
+                      >
+                        {s.access === "none"
+                          ? "Add protection"
+                          : "Change protection"}
+                      </button>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <PortInput
@@ -203,6 +226,34 @@ export function ServicesTab({
           the service can join or leave the tunnel network. Private services are
           only reachable by the other services in the project.
         </p>
+      )}
+      {accessFor && (
+        <PublicAccessDialog
+          open
+          onOpenChange={(o) => !o && setAccessFor(null)}
+          serviceName={accessFor.s.name}
+          authHint={authHint(accessFor.s)}
+          editing={accessFor.editing}
+          currentAccess={accessFor.s.access}
+          onConfirm={async ({ mode, secret }) => {
+            const body: Record<string, unknown> = {
+              access: { mode, secret },
+            };
+            if (!accessFor.editing) body.public = true;
+            const ok = await update(
+              accessFor.s,
+              body,
+              accessFor.editing
+                ? mode === "none"
+                  ? `Protection removed from ${accessFor.s.name}`
+                  : `${accessFor.s.name} is now protected`
+                : mode === "none"
+                  ? `${accessFor.s.name} is now public`
+                  : `${accessFor.s.name} is now public and protected`,
+            );
+            if (!ok) throw new Error("not saved");
+          }}
+        />
       )}
       {healthFor && (
         <HealthDialog

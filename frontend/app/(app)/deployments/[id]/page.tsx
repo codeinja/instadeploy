@@ -37,6 +37,7 @@ import {
   TypeIcon,
   UrlChip,
 } from "@/components/status";
+import { deploymentExposure, ExposureBadge } from "@/components/exposure";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ErrorState } from "@/components/error-state";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -171,6 +172,7 @@ function DeploymentDetail() {
                   {d.name}
                 </h1>
                 <StatusBadge status={d.status} />
+                <ExposureBadge exposure={deploymentExposure(d)} />
               </div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                 <Link

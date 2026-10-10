@@ -19,6 +19,7 @@ import type { ActivityEvent, Agent, Deployment, Me } from "@/lib/types";
 import { usePoll } from "@/lib/use-poll";
 import { deploymentSource, greeting, timeAgo } from "@/lib/format";
 import { DeploymentUrls, StatusBadge, TypeIcon } from "@/components/status";
+import { deploymentExposure, ExposureBadge } from "@/components/exposure";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { ActivityItem } from "@/components/activity-item";
@@ -238,7 +239,13 @@ export default function OverviewPage() {
                       <DeploymentUrls d={d} max={1} />
                     </div>
                   </div>
-                  <StatusBadge status={d.status} />
+                  <span className="flex flex-wrap items-center justify-end gap-1.5">
+                    <ExposureBadge
+                      exposure={deploymentExposure(d)}
+                      className="hidden sm:inline-flex"
+                    />
+                    <StatusBadge status={d.status} />
+                  </span>
                 </li>
               ))}
             </ul>

@@ -516,14 +516,15 @@ function DeployStep({ onFinish }: { onFinish: (goTo: string) => void }) {
           <PartyPopper className="size-5" /> Deploy your first app
         </CardTitle>
         <CardDescription>
-          Try it with a test web server (nginx), or deploy your own image,
-          Dockerfile or Compose project.
+          Try it with nginx&apos;s welcome page: it gets a public URL right away
+          and holds no data. Everything else you deploy starts private until you
+          choose to make it public.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap gap-2">
         <Button size="lg" onClick={deployDemo} disabled={deploying}>
           {deploying ? <Loader2 className="animate-spin" /> : <Rocket />} Deploy
-          a test app
+          a public test page
         </Button>
         <Button
           size="lg"

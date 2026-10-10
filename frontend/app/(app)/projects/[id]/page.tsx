@@ -19,6 +19,7 @@ import { usePoll } from "@/lib/use-poll";
 import { deploymentSource, typeLabels } from "@/lib/format";
 import { ProjectDialog } from "@/components/project-dialog";
 import { DeploymentUrls, StatusBadge, TypeIcon } from "@/components/status";
+import { deploymentExposure, ExposureBadge } from "@/components/exposure";
 import { cn } from "@/lib/utils";
 import { VariablesTable } from "@/components/variables-table";
 import { DomainStatus } from "@/components/domain-status";
@@ -232,7 +233,13 @@ export default function ProjectPage() {
                       </div>
                       <div className="flex items-center gap-4">
                         <DeploymentUrls d={d} max={3} />
-                        <StatusBadge status={d.status} />
+                        <span className="flex flex-wrap items-center justify-end gap-1.5">
+                          <ExposureBadge
+                            exposure={deploymentExposure(d)}
+                            className="hidden sm:inline-flex"
+                          />
+                          <StatusBadge status={d.status} />
+                        </span>
                       </div>
                     </div>
                   ))}

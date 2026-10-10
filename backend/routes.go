@@ -60,7 +60,10 @@ func (s *Server) reconcileRoutes(ctx context.Context) error {
 	if err := s.removeStaleRoutes(ctx); err != nil {
 		return err
 	}
-	return s.syncRoutes(ctx)
+	if err := s.syncRoutes(ctx); err != nil {
+		return err
+	}
+	return s.syncRouteAccess(ctx)
 }
 
 // ensureGeneratedRoutes adds a route row for public services that lack one.

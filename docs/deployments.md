@@ -49,7 +49,7 @@ Paste a `docker run` command; multi-line commands with `\` are fine. It's conver
 Run any image, such as `nginx`, `postgres:17` or `ghcr.io/user/app:1.4`.
 
 - **Port**: detected from the image's `EXPOSE` metadata. If there are several, you choose; if there are none, enter the port the app listens on.
-- **Public**: on by default. The app gets `https://<name>-xxxx.<apps domain>`.
+- **Public**: off by default. Turn it on to get `https://<name>-xxxx.<apps domain>` (see [Public access](#public-access)).
 - **Private images**: add credentials in **Settings → Private registries** (Docker Hub, GHCR, GitLab or your own registry). Use an access token, not your password.
 - Each deploy records the image **digest**, so a rollback runs exactly the same image even if the tag has moved since.
 - Change the image later from the deployment's **Overview** (pencil icon next to the image).
@@ -81,6 +81,36 @@ How it differs from plain `docker compose up`:
 | `${VAR}` | Filled from your Insta Deploy variables (and the project's `.env`) |
 
 Changing which services are public triggers a redeploy, so services can join or leave the tunnel network.
+
+## Public access
+
+Everything you deploy starts **private**: it runs without a URL and is only reachable from inside its project.
+
+Turning on **Public** (in the deploy form, on an App Store page, or on a deployment's **Services** tab) opens a confirmation that explains:
+
+- **what public means**: anyone who has or finds the URL can reach it, and scanners find new apps within minutes;
+- **whether the app protects itself**:
+
+  | App Store label | Meaning |
+  | --- | --- |
+  | Has its own login | Visitors must sign in to the app |
+  | First visitor sets it up | Unclaimed until someone finishes setup or creates the first admin: do it right away, or add protection |
+  | No login | Anyone with the URL can use it |
+  | (Your own image) | Insta Deploy can't tell; check the app's docs |
+
+- **optional access protection**, enforced by Pangolin before the request reaches your app:
+
+  | Protection | Good for |
+  | --- | --- |
+  | None | Apps with their own login, or sites meant to be public |
+  | Password (8–100 characters) | Apps without a login (IT-Tools, Excalidraw, Syncthing…) |
+  | 6-digit PIN | The same, quicker to type on a phone |
+
+  Visitors see a Pangolin sign-in page first. **Mobile apps, API clients and webhooks can't pass it**, so don't protect services they need to reach (for example Immich or Jellyfin apps, or n8n webhooks). The password or PIN is encrypted and can't be shown again; change or remove it from **Services → Change protection**.
+
+Each service shows its exposure: **Private**, **Public** or **Public + Protected**. Deployment lists show the most exposed service's status.
+
+**HTTPS**: TLS terminates at Pangolin. Traffic then travels through the encrypted WireGuard tunnel to your machine, and reaches the container as plain HTTP over a private Docker network that never leaves the machine. See [architecture.md](architecture.md#where-traffic-is-encrypted).
 
 ## Private network between deployments
 

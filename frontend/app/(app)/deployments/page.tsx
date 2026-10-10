@@ -10,6 +10,7 @@ import { usePoll } from "@/lib/use-poll";
 import { deploymentSource, timeAgo, typeLabels } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { DeploymentUrls, StatusBadge, TypeIcon } from "@/components/status";
+import { deploymentExposure, ExposureBadge } from "@/components/exposure";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { buttonVariants } from "@/components/ui/button";
@@ -206,7 +207,13 @@ function DeploymentsList() {
                       {timeAgo(d.updated_at)}
                     </span>
                   </span>
-                  <StatusBadge status={d.status} />
+                  <span className="flex flex-wrap items-center justify-end gap-1.5">
+                    <ExposureBadge
+                      exposure={deploymentExposure(d)}
+                      className="hidden sm:inline-flex"
+                    />
+                    <StatusBadge status={d.status} />
+                  </span>
                 </div>
               </div>
             </li>

@@ -8,18 +8,19 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  Globe,
   Info,
   KeyRound,
   Loader2,
-  Lock,
   Pencil,
   Rocket,
+  ShieldAlert,
+  ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
 import type {
   Agent,
+  AuthHint,
   CatalogApp,
   ComposeAnalysis,
   Deployment,
@@ -27,6 +28,12 @@ import type {
   Project,
 } from "@/lib/types";
 import { randomValue, saveDraft } from "@/lib/draft";
+import { ExposureBadge } from "@/components/exposure";
+import {
+  PublicAccessDialog,
+  type AccessChoice,
+} from "@/components/public-access-dialog";
+import { Switch } from "@/components/ui/switch";
 import { slug } from "@/lib/format";
 import { AppIcon } from "@/components/app-icon";
 import { CopyButton } from "@/components/copy-button";
@@ -58,6 +65,13 @@ export default function AppPage() {
   const [agentId, setAgentId] = useState("");
   const [projectId, setProjectId] = useState("");
   const [deploying, setDeploying] = useState(false);
+  // Private by default; going public asks first (with protection options).
+  const [makePublic, setMakePublic] = useState(false);
+  const [access, setAccess] = useState<AccessChoice>({
+    mode: "none",
+    secret: "",
+  });
+  const [asking, setAsking] = useState<"enable" | "edit" | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -134,10 +148,19 @@ export default function AppPage() {
             source: { kind: "inline", compose: app.compose },
             services: analysis.services.map((s) =>
               s.name === app.public.service
-                ? { name: s.name, public: true, port: app.public.port }
+                ? {
+                    name: s.name,
+                    public: makePublic,
+                    port: app.public.port,
+                    auth_hint: app.auth,
+                  }
                 : { name: s.name, public: false },
             ),
           },
+          access:
+            makePublic && access.mode !== "none"
+              ? [{ service: app.public.service, ...access }]
+              : [],
           variables: variables(),
         },
       });
@@ -157,6 +180,8 @@ export default function AppPage() {
       env: variables(),
       publicService: app.public.service,
       port: app.public.port,
+      authHint: app.auth,
+      authNote: app.auth_note,
       source: `${app.name} from the App Store, ready to customize`,
     });
     router.push(
@@ -221,9 +246,11 @@ export default function AppPage() {
             <CardHeader>
               <CardTitle>What gets deployed</CardTitle>
               <CardDescription>
-                {me?.pangolin_enabled
-                  ? `${app.public.service} gets a public HTTPS address under ${me.apps_domain}; everything else stays private.`
-                  : "Pangolin isn't connected yet, so the app will run without a public URL."}
+                {!me?.pangolin_enabled
+                  ? "Pangolin isn't connected yet, so the app will run without a public URL."
+                  : makePublic
+                    ? `${app.public.service} gets a public HTTPS address under ${me.apps_domain}; everything else stays private.`
+                    : `Everything stays private. Turn on a public URL for ${app.public.service} on the right when you're ready.`}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -242,15 +269,15 @@ export default function AppPage() {
                           {s.image}
                         </span>
                       </span>
-                      {s.name === app.public.service ? (
-                        <Badge className="gap-1">
-                          <Globe className="size-3" /> Public
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="gap-1">
-                          <Lock className="size-3" /> Private
-                        </Badge>
-                      )}
+                      <ExposureBadge
+                        exposure={
+                          s.name !== app.public.service || !makePublic
+                            ? "private"
+                            : access.mode === "none"
+                              ? "public"
+                              : "protected"
+                        }
+                      />
                     </li>
                   ))}
                 </ul>
@@ -358,6 +385,43 @@ export default function AppPage() {
                 options={projects.map((p) => ({ value: p.id, label: p.name }))}
               />
             </div>
+            <div className="space-y-2 rounded-lg border p-3">
+              <label className="flex items-start justify-between gap-3">
+                <span>
+                  <span className="block text-sm font-medium">Public URL</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {makePublic
+                      ? `For ${app.public.service}, over HTTPS.`
+                      : "Off: it runs privately until you turn this on."}
+                  </span>
+                </span>
+                <Switch
+                  checked={makePublic}
+                  onCheckedChange={(v) =>
+                    v ? setAsking("enable") : setMakePublic(false)
+                  }
+                  aria-label="Give it a public URL"
+                />
+              </label>
+              {makePublic && (
+                <div className="flex items-center gap-2">
+                  <ExposureBadge
+                    exposure={access.mode === "none" ? "public" : "protected"}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAsking("edit")}
+                    className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  >
+                    {access.mode === "none" ? "Add protection" : "Change"}
+                  </button>
+                </div>
+              )}
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <AuthIcon auth={app.auth} />
+                {authLabel[app.auth]}
+              </p>
+            </div>
             <div className="space-y-2 pt-2">
               {agents.length === 0 ? (
                 <Link
@@ -392,6 +456,43 @@ export default function AppPage() {
           </CardContent>
         </Card>
       </div>
+      {asking && (
+        <PublicAccessDialog
+          open
+          onOpenChange={(o) => !o && setAsking(null)}
+          serviceName={app.name}
+          authHint={app.auth}
+          authNote={app.auth_note}
+          editing={asking === "edit"}
+          currentAccess={access.mode}
+          onConfirm={(choice) => {
+            setAccess(
+              choice.mode !== "none" && !choice.secret ? access : choice,
+            );
+            setMakePublic(true);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+const authLabel: Record<AuthHint, string> = {
+  login: "Has its own login",
+  setup: "The first visitor sets it up and becomes the admin",
+  none: "Has no login: anyone with the URL can use it",
+};
+
+function AuthIcon({ auth }: { auth: AuthHint }) {
+  if (auth === "login")
+    return <ShieldCheck className="size-3.5 shrink-0 text-success" />;
+  return (
+    <ShieldAlert
+      className={
+        auth === "none"
+          ? "size-3.5 shrink-0 text-destructive"
+          : "size-3.5 shrink-0 text-[oklch(0.55_0.13_70)] dark:text-warning"
+      }
+    />
   );
 }

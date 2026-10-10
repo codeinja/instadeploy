@@ -70,11 +70,14 @@ type Revision struct {
 }
 
 type Service struct {
-	ID            string  `json:"id"`
-	Name          string  `json:"name"`
-	Image         string  `json:"image"`
-	Port          *int    `json:"port"`
-	Public        bool    `json:"public"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Image  string `json:"image"`
+	Port   *int   `json:"port"`
+	Public bool   `json:"public"`
+	// Access protection in front of the public URL: none, password or
+	// pincode. The secret itself is never returned.
+	Access        string  `json:"access"`
 	TargetHost    string  `json:"target_host"`
 	ContainerID   string  `json:"container_id"`
 	State         string  `json:"state"`
@@ -182,7 +185,7 @@ func (s *Server) attachServices(ctx context.Context, byID map[string]*Deployment
 	for id := range byID {
 		ids = append(ids, id)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, deployment_id, name, image, port, public, target_host,
+	rows, err := s.db.QueryContext(ctx, `SELECT id, deployment_id, name, image, port, public, access, target_host,
 		container_id, state, health, detected_ports FROM services WHERE deployment_id = ANY($1::uuid[]) ORDER BY name`, pq.Array(ids))
 	if err != nil {
 		return err
@@ -193,7 +196,7 @@ func (s *Server) attachServices(ctx context.Context, byID map[string]*Deployment
 	for rows.Next() {
 		var svc Service
 		var port sql.NullInt64
-		if err := rows.Scan(&svc.ID, &svc.deploymentID, &svc.Name, &svc.Image, &port, &svc.Public, &svc.TargetHost,
+		if err := rows.Scan(&svc.ID, &svc.deploymentID, &svc.Name, &svc.Image, &port, &svc.Public, &svc.Access, &svc.TargetHost,
 			&svc.ContainerID, &svc.State, &svc.Health, pq.Array(&svc.DetectedPorts)); err != nil {
 			return err
 		}

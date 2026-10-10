@@ -58,6 +58,9 @@ type ServiceSpec struct {
 	Port        int          `json:"port,omitempty"`
 	Public      bool         `json:"public"`
 	HealthCheck *HealthCheck `json:"health_check,omitempty"`
+	// What the dashboard knows about the app's own login (from the App
+	// Store): login, setup or none. Empty when unknown. Informational only.
+	AuthHint string `json:"auth_hint,omitempty"`
 }
 
 // HealthCheck is an optional HTTP check for services without a Docker
@@ -121,6 +124,11 @@ func (s *Spec) Validate() error {
 		}
 		if svc.Public && svc.Port == 0 {
 			return fmt.Errorf("service %s is public, so choose which port to expose", svc.Name)
+		}
+		switch svc.AuthHint {
+		case "", "login", "setup", "none":
+		default:
+			return fmt.Errorf("service %s: auth_hint must be login, setup or none", svc.Name)
 		}
 		if hc := svc.HealthCheck; hc != nil {
 			if !strings.HasPrefix(hc.Path, "/") || len(hc.Path) > 200 || strings.ContainsAny(hc.Path, " \r\n") {

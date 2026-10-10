@@ -150,6 +150,24 @@ https://web-1a2b.apps.example.com
   → Pangolin (TLS) → tunnel → newt → insta-shop-12ab34cd-web:80 → container
 ```
 
+### Where traffic is encrypted
+
+| Hop | Protocol | Encrypted |
+| --- | --- | --- |
+| Visitor → Pangolin | HTTPS (Let's Encrypt certificate held by Pangolin) | Yes. **TLS terminates at Pangolin.** |
+| Pangolin → newt on your machine | WireGuard tunnel | Yes |
+| newt → container | Plain HTTP on the private `insta-deploy` Docker network | No, but it never leaves the machine |
+
+Because TLS ends at Pangolin, Pangolin can see the decrypted requests. With Pangolin Cloud that's the Pangolin service; self-host Pangolin if you need to keep that in your own hands. Apps receive plain HTTP with `X-Forwarded-*` headers describing the original HTTPS request.
+
+### Exposure and access protection
+
+Every service starts **private**: no route, reachable only inside the project. Public is opt-in per service, and the dashboard asks first, explaining what public means and whether the app has its own login (App Store apps carry an `auth` value of `login`, `setup` or `none` in [backend/catalog.yaml](../backend/catalog.yaml), saved as the service's `auth_hint`).
+
+A public service can also be **protected**: `services.access` is `password` or `pincode`, with the secret encrypted in `services.access_secret`. The reconciler applies it to each of the service's Pangolin resources (`POST /resource/{id}/password` and `/pincode`) and records a fingerprint in `routes.access_applied`, so changes are re-applied and new routes (such as a custom domain) are protected too. Pangolin then shows its own sign-in page before forwarding the request. This works for browsers only; mobile apps, API clients and webhooks can't sign in.
+
+The dashboard shows each service as **Private**, **Public** or **Public + Protected**; a deployment takes its most exposed service's status.
+
 ## Logs, health and stats
 
 - **Build and deployment logs**: the agent sends lines in batches every 500 ms. The API redacts secret values, stores the lines in `deployment_logs`, and streams them to the dashboard with Server-Sent Events. Image download progress is reduced to one line per service.
