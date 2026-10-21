@@ -9,9 +9,6 @@ No port forwarding. No reverse proxy. No certificates. No cloud bill.
 
 <br/>
 
-<img width="200%" alt="instadeploy_gif" src="https://github.com/user-attachments/assets/eba96111-22c0-4b39-93f2-232a41644ff6" />
-
-<br/>
 
 ![Self-hosted](https://img.shields.io/badge/self--hosted-6366f1?style=for-the-badge&logo=homeassistant&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
