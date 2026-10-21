@@ -1,0 +1,37 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Compose deployments:
+//
+//  1. `docker compose config --format json` normalizes the user's file
+//     (interpolation, defaults, relative paths made absolute).
+//  2. validateCompose rejects settings that would give containers access to
+//     the host (privileged, host network, host paths, the Docker socket...).
+//  3. transformCompose drops published host ports unless local host-port
+//     publishing is explicitly enabled, joins only the public services to the
+//     tunnel network, and adds variables and labels.
+//  4. The result is written next to the project and run with
+//     `docker compose up -d`.
+
+func localPortPublishingEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("INSTA_DEPLOY_ALLOW_LOCAL_PORTS")))
+	if v == "1" || v == "true" || v == "yes" {
+		return true
+	}
+	v = strings.TrimSpace(strings.ToLower(os.Getenv("INSTA_DEPLOY_ALLOW_HOST_PORTS")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+type composeProject map[string]any
