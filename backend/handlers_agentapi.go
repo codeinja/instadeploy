@@ -22,14 +22,18 @@ type agentSystemInfo struct {
 	Arch          string `json:"arch"`
 	DockerVersion string `json:"docker_version"`
 	AgentVersion  string `json:"agent_version"`
+	LocalPorts    bool   `json:"local_ports"`
+	LocalAddress  string `json:"local_address"`
 }
 
 func (s *Server) saveAgentInfo(ctx context.Context, id string, info agentSystemInfo) {
 	if info.Hostname == "" && info.DockerVersion == "" {
 		return
 	}
-	s.db.ExecContext(ctx, `UPDATE agents SET hostname = $1, os = $2, arch = $3, docker_version = $4, agent_version = $5 WHERE id = $6`,
-		trunc(info.Hostname, 255), trunc(info.OS, 100), trunc(info.Arch, 50), trunc(info.DockerVersion, 50), trunc(info.AgentVersion, 50), id)
+	s.db.ExecContext(ctx, `UPDATE agents SET hostname = $1, os = $2, arch = $3, docker_version = $4, agent_version = $5,
+		local_ports = $6, local_address = $7 WHERE id = $8`,
+		trunc(info.Hostname, 255), trunc(info.OS, 100), trunc(info.Arch, 50), trunc(info.DockerVersion, 50), trunc(info.AgentVersion, 50),
+		info.LocalPorts, trunc(info.LocalAddress, 255), id)
 }
 
 func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {

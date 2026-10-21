@@ -121,6 +121,10 @@ type SystemInfo struct {
 	Arch          string `json:"arch"`
 	DockerVersion string `json:"docker_version"`
 	AgentVersion  string `json:"agent_version"`
+	// Set by the agent (not Docker): whether services may be published on
+	// host ports, and the machine's address on its network.
+	LocalPorts   bool   `json:"local_ports"`
+	LocalAddress string `json:"local_address,omitempty"`
 }
 
 func (d *DockerService) SystemInfo(ctx context.Context) (SystemInfo, error) {
@@ -292,6 +296,7 @@ type ContainerSpec struct {
 	Image         string
 	Env           []string
 	Port          int
+	HostPort      int // publishes Port on this port of the machine (0: not published)
 	Network       string
 	Labels        map[string]string
 	Volumes       []VolumeMount
@@ -338,6 +343,11 @@ func (d *DockerService) CreateContainer(ctx context.Context, s ContainerSpec) (s
 	}
 	if s.Port > 0 {
 		body["ExposedPorts"] = map[string]any{fmt.Sprintf("%d/tcp", s.Port): map[string]any{}}
+		if s.HostPort > 0 {
+			hostConfig["PortBindings"] = map[string]any{
+				fmt.Sprintf("%d/tcp", s.Port): []map[string]string{{"HostPort": strconv.Itoa(s.HostPort)}},
+			}
+		}
 	}
 	var out struct {
 		ID string `json:"Id"`

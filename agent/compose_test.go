@@ -59,3 +59,32 @@ func TestTransformComposeWithoutProjectNetwork(t *testing.T) {
 		t.Fatal("older backends (no project network) must not add networks")
 	}
 }
+
+func TestTransformComposeLocalPorts(t *testing.T) {
+	p := composeProject{"services": map[string]any{
+		"web": map[string]any{"image": "immich", "ports": []any{map[string]any{"target": 2283.0, "published": "2283"}}},
+		"db":  map[string]any{"image": "postgres", "ports": []any{map[string]any{"target": 5432.0, "published": "5432"}}},
+	}}
+	d := &Deployment{Name: "immich", Network: "insta-deploy",
+		Services: []Service{{Name: "web", Port: 2283, LocalPort: 8080}, {Name: "db", Port: 5432}}}
+	if err := transformCompose(p, d); err != nil {
+		t.Fatal(err)
+	}
+	svcs := p.services()
+	if _, ok := svcs["db"]["ports"]; ok {
+		t.Fatal("the file's own host ports must be removed")
+	}
+	ports := asMaps(svcs["web"]["ports"])
+	if len(ports) != 1 || ports[0]["target"] != 2283 || ports[0]["published"] != "8080" {
+		t.Fatalf("web ports: %v", svcs["web"]["ports"])
+	}
+	if n, _ := svcs["web"]["networks"].(map[string]any); n["insta-deploy"] != nil {
+		t.Fatal("local network access must not join the tunnel network")
+	}
+
+	p = composeProject{"services": map[string]any{"vpn": map[string]any{"image": "x", "network_mode": "service:web"}}}
+	d = &Deployment{Name: "x", Services: []Service{{Name: "vpn", Port: 80, LocalPort: 8080}}}
+	if err := transformCompose(p, d); err == nil {
+		t.Fatal("network_mode services can't publish ports")
+	}
+}

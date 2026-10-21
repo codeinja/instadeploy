@@ -72,7 +72,7 @@ How it differs from plain `docker compose up`:
 
 | Compose setting | In Insta Deploy |
 | --- | --- |
-| `ports: ["8080:80"]` | Removed. Make the service public instead. |
+| `ports: ["8080:80"]` | Removed. Make the service public, or turn on [local network access](#local-network-access). |
 | Relative bind mounts (`./data:/data`) | Work; they point into the project folder on the machine |
 | Named volumes | Work as usual (prefixed with the project name) |
 | Host paths (`/srv/x:/x`) | Refused, unless the folder is in the agent's `INSTA_DEPLOY_ALLOWED_HOST_PATHS` |
@@ -111,6 +111,27 @@ Turning on **Public** (in the deploy form, on an App Store page, or on a deploym
 Each service shows its exposure: **Private**, **Public** or **Public + Protected**. Deployment lists show the most exposed service's status.
 
 **HTTPS**: TLS terminates at Pangolin. Traffic then travels through the encrypted WireGuard tunnel to your machine, and reaches the container as plain HTTP over a private Docker network that never leaves the machine. See [architecture.md](architecture.md#where-traffic-is-encrypted).
+
+## Local network access
+
+A service can also be reached from the machine's own network (your LAN) without a public URL, for example Immich at `http://192.168.1.10:2283` from your phone at home. It's **off by default** and needs two things:
+
+1. **The machine allows it.** Re-run its agent with:
+
+   ```bash
+   -e INSTA_DEPLOY_ALLOW_LOCAL_PORTS=true \
+   -e INSTA_DEPLOY_LOCAL_ADDRESS=192.168.1.10   # the machine's IP on your network, for links
+   ```
+
+   The **Agents** page shows **Local network** with the address once the agent reconnects. Without the address, Insta Deploy can't show a link; the port is published either way.
+
+2. **The service turns it on.** On the deployment's **Services** tab, switch on **Local network** and choose the port on the machine (the service's own port by default). Insta Deploy redeploys to publish it, and shows the address next to any public URL.
+
+Local network access is independent of **Public**: a service can be private and on the LAN, public and on the LAN, or either one alone. It's plain HTTP, and **anything on the network can reach it**, so rely on the app's own login, and don't turn it on for machines whose network you don't trust (a VPS with a public IP publishes the port to the internet unless a firewall blocks it).
+
+- Each port can be used once per machine; Insta Deploy refuses a port another deployment uses. Ports used by other programs fail at deploy time.
+- For Compose deployments, `ports:` in the file are still removed; the port chosen here is the only one published (TCP, one per service).
+- If the agent stops allowing it, deployments that use it fail to deploy with a message explaining how to fix it.
 
 ## Private network between deployments
 

@@ -72,6 +72,13 @@ components:
               name: { type: string, example: web }
               port: { type: integer, example: 80 }
               public: { type: boolean }
+              local_port:
+                type: integer
+                example: 2283
+                description: >
+                  Publishes `port` on this port of the agent's machine, for access from
+                  its local network. Requires an agent started with
+                  INSTA_DEPLOY_ALLOW_LOCAL_PORTS=true.
               health_check:
                 type: object
                 properties:
@@ -105,6 +112,8 @@ components:
         image: { type: string }
         port: { type: integer, nullable: true }
         public: { type: boolean }
+        local_port: { type: integer, nullable: true }
+        local_url: { type: string, example: "http://192.168.1.10:2283/" }
         state: { type: string, example: running }
         health: { type: string, enum: [HEALTHY, UNHEALTHY, STARTING, NONE] }
         detected_ports: { type: array, items: { type: integer } }
@@ -204,6 +213,8 @@ components:
         deployments: { type: integer }
         tunnel_ready: { type: boolean }
         tunnel_error: { type: string }
+        local_ports: { type: boolean, description: "Started with INSTA_DEPLOY_ALLOW_LOCAL_PORTS=true" }
+        local_address: { type: string, example: 192.168.1.10 }
     AgentConnect:
       type: object
       properties:
@@ -382,6 +393,7 @@ paths:
               properties:
                 public: { type: boolean }
                 port: { type: integer }
+                local_port: { type: integer, description: "Host port for local network access; 0 turns it off. Redeploys." }
                 health_check: { type: object, properties: { path: { type: string }, interval_seconds: { type: integer } } }
                 clear_health_check: { type: boolean }
                 access:

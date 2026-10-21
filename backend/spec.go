@@ -54,9 +54,14 @@ type Source struct {
 }
 
 type ServiceSpec struct {
-	Name        string       `json:"name"`
-	Port        int          `json:"port,omitempty"`
-	Public      bool         `json:"public"`
+	Name   string `json:"name"`
+	Port   int    `json:"port,omitempty"`
+	Public bool   `json:"public"`
+	// LocalPort publishes Port on this port of the agent's machine, so the
+	// service is reachable from its local network (http://<machine>:<port>)
+	// without a public URL. 0: not published. Only agents started with
+	// INSTA_DEPLOY_ALLOW_LOCAL_PORTS=true accept it.
+	LocalPort   int          `json:"local_port,omitempty"`
 	HealthCheck *HealthCheck `json:"health_check,omitempty"`
 	// What the dashboard knows about the app's own login (from the App
 	// Store): login, setup or none. Empty when unknown. Informational only.
@@ -111,6 +116,7 @@ func (s *Spec) Validate() error {
 		return fmt.Errorf("%s deployments have exactly one service", strings.ToLower(s.Type))
 	}
 	seen := map[string]bool{}
+	localPorts := map[int]string{}
 	for _, svc := range s.Services {
 		if !serviceNameRe.MatchString(svc.Name) {
 			return fmt.Errorf("invalid service name %q", svc.Name)
@@ -124,6 +130,18 @@ func (s *Spec) Validate() error {
 		}
 		if svc.Public && svc.Port == 0 {
 			return fmt.Errorf("service %s is public, so choose which port to expose", svc.Name)
+		}
+		if svc.LocalPort != 0 {
+			if !validPort(svc.LocalPort) {
+				return fmt.Errorf("service %s: local network port must be between 1 and 65535", svc.Name)
+			}
+			if svc.Port == 0 {
+				return fmt.Errorf("service %s: choose the service's port before making it reachable on the local network", svc.Name)
+			}
+			if other, dup := localPorts[svc.LocalPort]; dup {
+				return fmt.Errorf("services %s and %s both use local network port %d", other, svc.Name, svc.LocalPort)
+			}
+			localPorts[svc.LocalPort] = svc.Name
 		}
 		switch svc.AuthHint {
 		case "", "login", "setup", "none":

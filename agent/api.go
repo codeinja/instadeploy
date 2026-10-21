@@ -93,6 +93,9 @@ type Service struct {
 	Port   int    `json:"port"`
 	Public bool   `json:"public"`
 	Alias  string `json:"alias"`
+	// Host port Port is published on, for access from the machine's network.
+	// 0: not published (the default; requires allowLocalPorts).
+	LocalPort int `json:"local_port"`
 	// Names on the project network, e.g. "iris" or "legion.legion".
 	ProjectAliases []string          `json:"project_aliases"`
 	Env            map[string]string `json:"env"`

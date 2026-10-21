@@ -27,20 +27,24 @@ type Agent struct {
 	Deployments   int        `json:"deployments"`
 	TunnelReady   bool       `json:"tunnel_ready"`
 	TunnelError   string     `json:"tunnel_error"`
-	CreatedAt     time.Time  `json:"created_at"`
+	// Whether the agent allows local network access (host ports), and the
+	// machine's address on its network if known.
+	LocalPorts   bool      `json:"local_ports"`
+	LocalAddress string    `json:"local_address"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 const agentSelect = `SELECT a.id, a.name,
 	CASE WHEN a.revoked_at IS NOT NULL THEN 'REVOKED' ELSE a.status END,
 	a.last_seen, a.hostname, a.os, a.arch, a.docker_version, a.agent_version,
 	(SELECT COUNT(*) FROM deployments d WHERE d.agent_id = a.id),
-	a.pangolin_site_id IS NOT NULL, a.tunnel_error, a.created_at
+	a.pangolin_site_id IS NOT NULL, a.tunnel_error, a.local_ports, a.local_address, a.created_at
 	FROM agents a`
 
 func scanAgent(row interface{ Scan(...any) error }) (Agent, error) {
 	var a Agent
 	err := row.Scan(&a.ID, &a.Name, &a.Status, &a.LastSeen, &a.Hostname, &a.OS, &a.Arch, &a.DockerVersion,
-		&a.AgentVersion, &a.Deployments, &a.TunnelReady, &a.TunnelError, &a.CreatedAt)
+		&a.AgentVersion, &a.Deployments, &a.TunnelReady, &a.TunnelError, &a.LocalPorts, &a.LocalAddress, &a.CreatedAt)
 	return a, err
 }
 

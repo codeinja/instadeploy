@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { HeartPulse, Loader2, RotateCw } from "lucide-react";
+import { HeartPulse, House, Loader2, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
 import type { Deployment, Service } from "@/lib/types";
 import { formatBytes } from "@/lib/format";
-import { ContainerState, HealthBadge, RouteLink } from "@/components/status";
+import {
+  ContainerState,
+  HealthBadge,
+  RouteLink,
+  UrlChip,
+} from "@/components/status";
 import { ExposureBadge, serviceExposure } from "@/components/exposure";
 import { PublicAccessDialog } from "@/components/public-access-dialog";
 import { Button } from "@/components/ui/button";
@@ -47,6 +52,8 @@ export function ServicesTab({
   onChanged: () => void;
 }) {
   const [healthFor, setHealthFor] = useState<Service | null>(null);
+  // The service whose local network access is being turned on or changed.
+  const [localFor, setLocalFor] = useState<Service | null>(null);
   // The service whose public access is being turned on or changed.
   const [accessFor, setAccessFor] = useState<{
     s: Service;
@@ -67,12 +74,14 @@ export function ServicesTab({
       });
       toast.success(
         message,
-        d.type === "COMPOSE" && "public" in body
-          ? {
-              description:
-                "Redeploying so the service can join or leave the tunnel.",
-            }
-          : undefined,
+        "local_port" in body
+          ? { description: "Redeploying to apply the host port." }
+          : d.type === "COMPOSE" && "public" in body
+            ? {
+                description:
+                  "Redeploying so the service can join or leave the tunnel.",
+              }
+            : undefined,
       );
       onChanged();
       return true;
@@ -121,6 +130,7 @@ export function ServicesTab({
               <TableHead>Status</TableHead>
               <TableHead className="w-24">Public</TableHead>
               <TableHead>Access</TableHead>
+              <TableHead className="w-28">Local network</TableHead>
               <TableHead className="w-32">Port</TableHead>
               <TableHead>URL</TableHead>
               <TableHead className="hidden xl:table-cell">Usage</TableHead>
@@ -185,6 +195,34 @@ export function ServicesTab({
                   </div>
                 </TableCell>
                 <TableCell>
+                  <div className="flex flex-col items-start gap-1">
+                    <Switch
+                      checked={s.local_port != null}
+                      disabled={d.status === "DELETING"}
+                      onCheckedChange={(v) => {
+                        if (v && !s.port)
+                          return toast.error(`Set a port for ${s.name} first`);
+                        if (v) return setLocalFor(s);
+                        update(
+                          s,
+                          { local_port: 0 },
+                          `${s.name} is no longer reachable on the local network`,
+                        );
+                      }}
+                      aria-label={`Make ${s.name} reachable on the local network`}
+                    />
+                    {s.local_port != null && (
+                      <button
+                        className="font-mono text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                        onClick={() => setLocalFor(s)}
+                        title="Change the host port"
+                      >
+                        :{s.local_port}
+                      </button>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
                   <PortInput
                     s={s}
                     onSave={(port) =>
@@ -193,22 +231,36 @@ export function ServicesTab({
                   />
                 </TableCell>
                 <TableCell className="max-w-80">
-                  {s.routes.length === 0 ? (
-                    <span className="text-sm text-muted-foreground">
-                      {s.public ? "—" : "Private"}
-                    </span>
-                  ) : (
-                    <div className="flex flex-col gap-1">
-                      {s.routes.map((r) => (
-                        <span key={r.id} className="flex items-center gap-2">
-                          <RouteLink route={r} />
-                          {r.kind === "CUSTOM" && (
-                            <Badge variant="secondary">custom</Badge>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  <div className="flex flex-col gap-1">
+                    {s.routes.length === 0 && s.local_port == null && (
+                      <span className="text-sm text-muted-foreground">
+                        {s.public ? "—" : "Private"}
+                      </span>
+                    )}
+                    {s.routes.map((r) => (
+                      <span key={r.id} className="flex items-center gap-2">
+                        <RouteLink route={r} />
+                        {r.kind === "CUSTOM" && (
+                          <Badge variant="secondary">custom</Badge>
+                        )}
+                      </span>
+                    ))}
+                    {s.local_port != null && (
+                      <span
+                        className="flex items-center gap-2"
+                        title={`On ${d.agent_name}'s local network`}
+                      >
+                        {s.local_url ? (
+                          <UrlChip url={s.local_url} />
+                        ) : (
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {d.agent_name}:{s.local_port}
+                          </span>
+                        )}
+                        <Badge variant="secondary">LAN</Badge>
+                      </span>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell className="hidden text-xs text-muted-foreground xl:table-cell">
                   {s.stats
@@ -224,8 +276,25 @@ export function ServicesTab({
         <p className="text-xs text-muted-foreground">
           Making a Compose service public or private redeploys the project, so
           the service can join or leave the tunnel network. Private services are
-          only reachable by the other services in the project.
+          only reachable by the other services in the project. Host ports
+          written in the Compose file are not published; turn on local network
+          access instead.
         </p>
+      )}
+      {localFor && (
+        <LocalAccessDialog
+          d={d}
+          s={localFor}
+          onClose={() => setLocalFor(null)}
+          onSave={async (port) => {
+            const ok = await update(
+              localFor,
+              { local_port: port },
+              `${localFor.name} is reachable on the local network at port ${port}`,
+            );
+            if (ok) setLocalFor(null);
+          }}
+        />
       )}
       {accessFor && (
         <PublicAccessDialog
@@ -306,6 +375,96 @@ function PortInput({
         </Button>
       )}
     </form>
+  );
+}
+
+// LocalAccessDialog publishes a service on a port of the agent's machine,
+// so other devices on its network can reach it without a public URL.
+function LocalAccessDialog({
+  d,
+  s,
+  onClose,
+  onSave,
+}: {
+  d: Deployment;
+  s: Service;
+  onClose: () => void;
+  onSave: (port: number) => Promise<void>;
+}) {
+  const [port, setPort] = useState(String(s.local_port ?? s.port ?? ""));
+  const [saving, setSaving] = useState(false);
+  const n = Number(port);
+  const valid = Number.isInteger(n) && n >= 1 && n <= 65535;
+  const host = d.agent_local_address || d.agent_name;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <House className="size-5" /> Local network access for {s.name}
+          </DialogTitle>
+          <DialogDescription>
+            Publishes port {s.port} of {s.name} on a port of {d.agent_name}, so
+            devices on the same network can open it without a public URL. Anyone
+            on that network can reach it, so rely on the app&apos;s own login.
+            This is separate from the public URL.
+          </DialogDescription>
+        </DialogHeader>
+        {!d.agent_local_ports ? (
+          <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+            <p className="font-medium">
+              {d.agent_name} doesn&apos;t allow local network access yet.
+            </p>
+            <p className="text-muted-foreground">
+              Re-run its agent with these extra options (use the machine&apos;s
+              address on your network), then try again:
+            </p>
+            <pre className="overflow-x-auto rounded bg-muted p-2 font-mono text-xs">
+              -e INSTA_DEPLOY_ALLOW_LOCAL_PORTS=true{"\n"}
+              -e INSTA_DEPLOY_LOCAL_ADDRESS=192.168.1.10
+            </pre>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor="local-port">Port on {d.agent_name}</Label>
+            <Input
+              id="local-port"
+              type="number"
+              min={1}
+              max={65535}
+              className="w-32"
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Reachable at{" "}
+              <span className="font-mono">
+                http://{host}:{valid ? n : "…"}
+              </span>
+              {!d.agent_local_address &&
+                " (set INSTA_DEPLOY_LOCAL_ADDRESS on the agent to get a link)"}
+              . Each port can only be used once per machine.
+            </p>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button
+            onClick={async () => {
+              setSaving(true);
+              await onSave(n);
+              setSaving(false);
+            }}
+            disabled={saving || !valid || !d.agent_local_ports}
+          >
+            {saving && <Loader2 className="animate-spin" />} Save and redeploy
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/lib/pq"
@@ -47,6 +49,9 @@ type Deployment struct {
 	AutoDeploy  bool      `json:"auto_deploy"`
 	Revision    *Revision `json:"revision"`
 	Services    []Service `json:"services"`
+	// The agent's local network settings (see Agent.LocalPorts).
+	AgentLocalPorts   bool   `json:"agent_local_ports"`
+	AgentLocalAddress string `json:"agent_local_address"`
 	// Type of a stop/start/restart/deploy the agent hasn't finished yet.
 	PendingAction string    `json:"pending_action"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -75,6 +80,10 @@ type Service struct {
 	Image  string `json:"image"`
 	Port   *int   `json:"port"`
 	Public bool   `json:"public"`
+	// Host port for local network access (from the spec), and its URL when
+	// the machine's address is known.
+	LocalPort *int   `json:"local_port"`
+	LocalURL  string `json:"local_url"`
 	// Access protection in front of the public URL: none, password or
 	// pincode. The secret itself is never returned.
 	Access        string  `json:"access"`
@@ -98,7 +107,7 @@ type Route struct {
 	Error    string  `json:"error"`
 }
 
-const deploymentSelect = `SELECT d.id, d.project_id, p.name, d.agent_id, a.name, a.status, d.name, d.type,
+const deploymentSelect = `SELECT d.id, d.project_id, p.name, d.agent_id, a.name, a.status, a.local_ports, a.local_address, d.name, d.type,
 	d.environment, d.spec, d.status, d.error, d.auto_deploy, d.created_at, d.updated_at, p.user_id,
 	r.id, r.number, r.spec, r.image_digest, r.git_commit, r.trigger, rb.number, r.status, r.error, r.created_at, r.finished_at,
 	(SELECT t.type FROM agent_tasks t WHERE t.deployment_id = d.id AND t.status IN ('PENDING', 'DISPATCHED')
@@ -117,7 +126,7 @@ func scanDeployment(row interface{ Scan(...any) error }) (*Deployment, error) {
 	var revSpec []byte
 	var revCreated, revFinished sql.NullTime
 	var pending sql.NullString
-	err := row.Scan(&d.ID, &d.ProjectID, &d.ProjectName, &d.AgentID, &d.AgentName, &d.AgentStatus, &d.Name, &d.Type,
+	err := row.Scan(&d.ID, &d.ProjectID, &d.ProjectName, &d.AgentID, &d.AgentName, &d.AgentStatus, &d.AgentLocalPorts, &d.AgentLocalAddress, &d.Name, &d.Type,
 		&d.Environment, &spec, &d.Status, &d.Error, &d.AutoDeploy, &d.CreatedAt, &d.UpdatedAt, &d.userID,
 		&revID, &revNumber, &revSpec, &revDigest, &revCommit, &revTrigger, &rollbackOf, &revStatus, &revError, &revCreated, &revFinished,
 		&pending)
@@ -229,9 +238,25 @@ func (s *Server) attachServices(ctx context.Context, byID map[string]*Deployment
 	}
 	for _, svc := range order {
 		d := byID[svc.deploymentID]
+		d.setLocalAccess(svc)
 		d.Services = append(d.Services, *svc)
 	}
 	return rrows.Err()
+}
+
+// setLocalAccess fills in a service's local network port and URL from the
+// deployment's spec.
+func (d *Deployment) setLocalAccess(svc *Service) {
+	for _, sp := range d.Spec.Services {
+		if sp.Name != svc.Name || sp.LocalPort == 0 {
+			continue
+		}
+		port := sp.LocalPort
+		svc.LocalPort = &port
+		if d.AgentLocalAddress != "" {
+			svc.LocalURL = fmt.Sprintf("http://%s/", net.JoinHostPort(d.AgentLocalAddress, strconv.Itoa(port)))
+		}
+	}
 }
 
 func (s *Server) getDeployment(ctx context.Context, userID, id string) (*Deployment, error) {
@@ -353,3 +378,59 @@ func (s *Server) setDeploymentStatus(ctx context.Context, id, status, errMsg str
 var errNotFound = errors.New("not found")
 
 func int64Array(a []int64) any { return pq.Array(a) }
+
+// checkLocalPorts is called when a spec adds or changes local network ports
+// (ServiceSpec.LocalPort). The agent must allow them, and no other
+// deployment on the same machine may use the same host port. deploymentID
+// is empty for a new deployment.
+func (s *Server) checkLocalPorts(ctx context.Context, agentID, deploymentID string, old, spec Spec) error {
+	before := map[string]int{}
+	for _, svc := range old.Services {
+		before[svc.Name] = svc.LocalPort
+	}
+	changed := map[int]string{}
+	for _, svc := range spec.Services {
+		if svc.LocalPort != 0 && svc.LocalPort != before[svc.Name] {
+			changed[svc.LocalPort] = svc.Name
+		}
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+
+	var agentName string
+	var allowed bool
+	if err := s.db.QueryRowContext(ctx, `SELECT name, local_ports FROM agents WHERE id = $1`, agentID).Scan(&agentName, &allowed); err != nil {
+		return err
+	}
+	if !allowed {
+		return fmt.Errorf("%s doesn't allow local network access. Restart its agent with -e INSTA_DEPLOY_ALLOW_LOCAL_PORTS=true "+
+			"(and -e INSTA_DEPLOY_LOCAL_ADDRESS=<the machine's IP> to get links), then try again", agentName)
+	}
+
+	rows, err := s.db.QueryContext(ctx, `SELECT name, spec FROM deployments WHERE agent_id = $1 AND id::text <> $2`, agentID, deploymentID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var raw []byte
+		if err := rows.Scan(&name, &raw); err != nil {
+			return err
+		}
+		var other Spec
+		if json.Unmarshal(raw, &other) != nil {
+			continue
+		}
+		for _, svc := range other.Services {
+			if svc.LocalPort == 0 {
+				continue
+			}
+			if mine, clash := changed[svc.LocalPort]; clash {
+				return fmt.Errorf("%s: port %d on %s is already used by %s / %s", mine, svc.LocalPort, agentName, name, svc.Name)
+			}
+		}
+	}
+	return rows.Err()
+}

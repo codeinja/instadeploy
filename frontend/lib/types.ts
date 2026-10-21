@@ -33,6 +33,10 @@ export interface Agent {
   deployments: number;
   tunnel_ready: boolean;
   tunnel_error: string;
+  // Started with INSTA_DEPLOY_ALLOW_LOCAL_PORTS=true: services can be
+  // published on the machine's network.
+  local_ports: boolean;
+  local_address: string;
   created_at: string;
 }
 
@@ -45,6 +49,8 @@ export interface ServiceSpec {
   name: string;
   port?: number;
   public: boolean;
+  // Host port on the agent's machine, for access from its local network.
+  local_port?: number;
   health_check?: HealthCheck;
   // What's known about the app's own login (App Store apps).
   auth_hint?: AuthHint;
@@ -114,6 +120,9 @@ export interface Service {
   image: string;
   port: number | null;
   public: boolean;
+  local_port: number | null;
+  // http://<machine address>:<local_port>/ when the address is known.
+  local_url: string;
   access: AccessMode;
   target_host: string;
   container_id: string;
@@ -145,6 +154,8 @@ export interface Deployment {
   agent_id: string;
   agent_name: string;
   agent_status: AgentStatus;
+  agent_local_ports: boolean;
+  agent_local_address: string;
   name: string;
   type: DeploymentType;
   environment: Environment;

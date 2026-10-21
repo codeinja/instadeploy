@@ -148,6 +148,9 @@ func (a *Agent) deployContainer(ctx context.Context, d *Deployment, logs *logShi
 	if svc.Public && svc.Port == 0 {
 		return nil, userErr("Choose which port to make public.")
 	}
+	if err := a.checkLocalPorts(d); err != nil {
+		return nil, err
+	}
 
 	var volumes []VolumeMount
 	for _, v := range d.Volumes {
@@ -176,7 +179,7 @@ func (a *Agent) deployContainer(ctx context.Context, d *Deployment, logs *logShi
 		return nil, userErr("Could not remove the previous container: %v", err)
 	}
 	id, err := a.docker.CreateContainer(ctx, ContainerSpec{
-		Name: d.ContainerName, Image: image, Env: env, Port: svc.Port, Network: d.Network, Labels: labels,
+		Name: d.ContainerName, Image: image, Env: env, Port: svc.Port, HostPort: svc.LocalPort, Network: d.Network, Labels: labels,
 		Volumes: volumes, RestartPolicy: d.RestartPolicy, CPUs: d.CPUs, MemoryMB: d.MemoryMB,
 	})
 	if err != nil {
@@ -208,6 +211,9 @@ func (a *Agent) deployContainer(ctx context.Context, d *Deployment, logs *logShi
 		return nil, userErr("%s", msg)
 	}
 	logs.Deploy("Container running.")
+	if svc.LocalPort > 0 {
+		logs.Deploy(fmt.Sprintf("Published on this machine's network at port %d.", svc.LocalPort))
+	}
 	if d.Type == "DOCKERFILE" {
 		a.pruneBuiltImages(ctx, d)
 	}
@@ -334,6 +340,9 @@ func (a *Agent) deployCompose(ctx context.Context, d *Deployment, logs *logShipp
 		return nil, userErr("This Compose file mounts files from the project, which requires the agent to be started with -v /var/lib/insta-deploy:/var/lib/insta-deploy. Re-run the agent with the command from the Agents page.")
 	}
 
+	if err := a.checkLocalPorts(d); err != nil {
+		return nil, err
+	}
 	if d.ProjectNetwork != "" {
 		// Compose joins it as an external network (see transformCompose).
 		if err := a.docker.EnsureNetwork(ctx, d.ProjectNetwork); err != nil {
@@ -451,6 +460,21 @@ func commonEnv(d *Deployment) map[string]string {
 		}
 	}
 	return common
+}
+
+// checkLocalPorts refuses host ports unless this machine's owner allowed
+// them: they make services reachable by anything on the machine's network.
+func (a *Agent) checkLocalPorts(d *Deployment) error {
+	if a.allowLocalPorts {
+		return nil
+	}
+	for _, s := range d.Services {
+		if s.LocalPort > 0 {
+			return userErr("%s is set to be reachable on the local network (port %d), but this machine doesn't allow it. "+
+				"Restart the agent with -e INSTA_DEPLOY_ALLOW_LOCAL_PORTS=true, or turn off local network access for the service.", s.Name, s.LocalPort)
+		}
+	}
+	return nil
 }
 
 func isPublic(d *Deployment, name string) bool {

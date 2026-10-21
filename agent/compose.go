@@ -19,8 +19,10 @@ import (
 //     (interpolation, defaults, relative paths made absolute).
 //  2. validateCompose rejects settings that would give containers access to
 //     the host (privileged, host network, host paths, the Docker socket...).
-//  3. transformCompose drops published host ports, joins only the public
-//     services to the tunnel network, and adds variables and labels.
+//  3. transformCompose drops the file's published host ports (publishing
+//     only the ones chosen in the dashboard for local network access), joins
+//     only the public services to the tunnel network, and adds variables and
+//     labels.
 //  4. The result is written next to the project and run with
 //     `docker compose up -d`.
 
@@ -276,9 +278,10 @@ func transformCompose(p composeProject, d *Deployment) error {
 	services := p.services()
 	anyPublic := false
 	for name, svc := range services {
-		// Public access goes through Pangolin. Publishing host ports would
+		// Public access goes through Pangolin. The file's host ports would
 		// expose services on the machine's network and clash between
-		// projects, so they're removed.
+		// projects, so they're removed. Only a port chosen for local network
+		// access in the dashboard is published (the agent must allow it).
 		delete(svc, "ports")
 
 		labels, _ := svc["labels"].(map[string]any)
@@ -307,6 +310,15 @@ func transformCompose(p composeProject, d *Deployment) error {
 				env[k] = v
 			}
 			svc["environment"] = env
+		}
+
+		if want.LocalPort > 0 {
+			if mode, _ := svc["network_mode"].(string); mode != "" && mode != "bridge" {
+				return fmt.Errorf("%s can't be published on the local network because it uses network_mode: %s", name, mode)
+			}
+			svc["ports"] = []any{map[string]any{
+				"target": want.Port, "published": strconv.Itoa(want.LocalPort), "protocol": "tcp", "mode": "ingress",
+			}}
 		}
 
 		if want.Public {
@@ -356,7 +368,7 @@ func transformCompose(p composeProject, d *Deployment) error {
 		p["networks"] = nets
 	}
 	for name := range byName {
-		if _, ok := services[name]; !ok && byName[name].Public {
+		if _, ok := services[name]; !ok && (byName[name].Public || byName[name].LocalPort > 0) {
 			return fmt.Errorf("the Compose file has no service called %q", name)
 		}
 	}

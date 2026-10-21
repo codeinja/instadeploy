@@ -144,6 +144,8 @@ type AgentService struct {
 	Port   int    `json:"port,omitempty"`
 	Public bool   `json:"public"`
 	Alias  string `json:"alias"`
+	// Host port for local network access (see ServiceSpec.LocalPort).
+	LocalPort int `json:"local_port,omitempty"`
 	// How the other deployments of the project reach this service (see privateHost).
 	ProjectAliases []string          `json:"project_aliases,omitempty"`
 	Env            map[string]string `json:"env"`
@@ -336,7 +338,7 @@ func (s *Server) fillDeployPayload(ctx context.Context, d *Deployment, spec Spec
 	}
 	for _, svc := range spec.Services {
 		ad.Services = append(ad.Services, AgentService{
-			Name: svc.Name, Port: svc.Port, Public: svc.Public, Alias: targetHost(d, svc.Name),
+			Name: svc.Name, Port: svc.Port, Public: svc.Public, Alias: targetHost(d, svc.Name), LocalPort: svc.LocalPort,
 			ProjectAliases: []string{privateHost(d, svc.Name)},
 			Env:            vars.forService(svc.Name), HealthCheck: svc.HealthCheck,
 		})

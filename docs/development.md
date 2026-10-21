@@ -71,6 +71,8 @@ Get a token from **Machines → Add machine**, and set the setup guide's server 
 | `INSTA_DEPLOY_SERVER` | required | API URL; must be `https://` unless `INSTA_DEPLOY_ALLOW_HTTP=true` |
 | `INSTA_DEPLOY_ALLOW_HTTP` | `false` | Allow `http://` (local networks only) |
 | `INSTA_DEPLOY_ALLOWED_HOST_PATHS` | none | Host folders Compose deployments may mount, comma-separated |
+| `INSTA_DEPLOY_ALLOW_LOCAL_PORTS` | `false` | Allow publishing services on this machine's ports, for access from its local network (see [Local network access](deployments.md#local-network-access)) |
+| `INSTA_DEPLOY_LOCAL_ADDRESS` | detected outside a container | The machine's address on its network (e.g. `192.168.1.10`), used for the links in the dashboard |
 | `INSTA_DEPLOY_DATA_DIR` | `/var/lib/insta-deploy` | Project files and build contexts |
 | `NEWT_IMAGE` | `fosrl/newt:latest` | Pangolin tunnel client image |
 

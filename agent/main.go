@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -40,7 +41,13 @@ type Agent struct {
 	// from a project can be mounted into its containers.
 	dataDir          string
 	hostMountOK      bool
+	inContainer      bool
 	allowedHostPaths []string
+
+	// Publishing services on host ports makes them reachable from the
+	// machine's network (LAN), not only through the tunnel. Off unless the
+	// machine's owner opts in with INSTA_DEPLOY_ALLOW_LOCAL_PORTS=true.
+	allowLocalPorts bool
 
 	inflight sync.Map // task ID -> struct{}
 }
@@ -71,6 +78,8 @@ func main() {
 		health:    newHealthChecker(docker),
 		newtImage: envOr("NEWT_IMAGE", "fosrl/newt:latest"),
 		dataDir:   envOr("INSTA_DEPLOY_DATA_DIR", "/var/lib/insta-deploy"),
+
+		allowLocalPorts: os.Getenv("INSTA_DEPLOY_ALLOW_LOCAL_PORTS") == "true",
 	}
 	for _, p := range strings.Split(os.Getenv("INSTA_DEPLOY_ALLOWED_HOST_PATHS"), ",") {
 		if p = strings.TrimSpace(p); filepath.IsAbs(p) {
@@ -99,6 +108,11 @@ func main() {
 		}
 	}
 	a.checkSelf(ctx)
+	if a.allowLocalPorts {
+		a.info.LocalPorts = true
+		a.info.LocalAddress = a.localAddress()
+		log.Printf("local ports allowed: services can be published on this machine's network (%s)", orUnknown(a.info.LocalAddress))
+	}
 	log.Printf("Insta Deploy agent %s on %s (%s, %s, Docker %s)", agentVersion, a.info.Hostname, a.info.OS, a.info.Arch, a.info.DockerVersion)
 
 	go a.health.run(ctx)
@@ -117,6 +131,7 @@ func (a *Agent) checkSelf(ctx context.Context) {
 		a.hostMountOK = true // not in a container: paths are host paths
 		return
 	}
+	a.inContainer = true
 	for _, m := range self.Mounts {
 		if filepath.Clean(m.Destination) == filepath.Clean(a.dataDir) && filepath.Clean(m.Source) == filepath.Clean(a.dataDir) {
 			a.hostMountOK = true
@@ -129,6 +144,37 @@ func (a *Agent) checkSelf(ctx context.Context) {
 	if err := a.docker.ConnectNetwork(ctx, networkName, self.ID); err != nil {
 		log.Printf("join %s network: %v (HTTP health checks may not work)", networkName, err)
 	}
+}
+
+// localAddress is how other machines on the network reach this one, shown
+// in the dashboard as http://<address>:<port>. INSTA_DEPLOY_LOCAL_ADDRESS
+// wins; otherwise it's detected, which only works outside a container (in
+// one, it would find the container's own address).
+func (a *Agent) localAddress() string {
+	if v := strings.TrimSpace(os.Getenv("INSTA_DEPLOY_LOCAL_ADDRESS")); v != "" {
+		return v
+	}
+	if a.inContainer {
+		return ""
+	}
+	// No packets are sent: this only asks the kernel which interface would
+	// be used to reach the internet.
+	conn, err := net.Dial("udp", "192.0.2.1:9")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok && !addr.IP.IsLoopback() {
+		return addr.IP.String()
+	}
+	return ""
+}
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "address unknown, set INSTA_DEPLOY_LOCAL_ADDRESS"
+	}
+	return s
 }
 
 func (a *Agent) workDir(parts ...string) string {

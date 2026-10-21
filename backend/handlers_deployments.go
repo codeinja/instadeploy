@@ -93,6 +93,10 @@ func (s *Server) handleCreateDeployment(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := s.checkLocalPorts(ctx, agent.ID, "", Spec{}, req.Spec); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Resolve the Git commit before creating anything, so a typo in the
 	// URL or branch fails here with a clear message.
@@ -248,6 +252,10 @@ func (s *Server) handleUpdateDeployment(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if err := s.checkLocalPorts(ctx, d.AgentID, d.ID, d.Spec, *req.Spec); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		d.Spec = *req.Spec
 	}
 	if req.Environment != nil {
@@ -297,10 +305,11 @@ func (s *Server) handleUpdateDeployment(w http.ResponseWriter, r *http.Request) 
 	s.respondDeployment(w, r, d.ID)
 }
 
-// handleUpdateService changes one service's public access, port or health
-// check. For single-container deployments the public URL is created or
-// removed right away; Compose services need a redeploy to join or leave the
-// tunnel network, which happens automatically.
+// handleUpdateService changes one service's public access, local network
+// access, port or health check. For single-container deployments the public
+// URL is created or removed right away; Compose services need a redeploy to
+// join or leave the tunnel network, and host ports can only change with a
+// redeploy, which happens automatically.
 func (s *Server) handleUpdateService(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.loadDeployment(w, r)
 	if !ok {
@@ -308,8 +317,10 @@ func (s *Server) handleUpdateService(w http.ResponseWriter, r *http.Request) {
 	}
 	name := chi.URLParam(r, "service")
 	var req struct {
-		Public      *bool        `json:"public"`
-		Port        *int         `json:"port"`
+		Public *bool `json:"public"`
+		Port   *int  `json:"port"`
+		// Host port for local network access; 0 turns it off.
+		LocalPort   *int         `json:"local_port"`
 		HealthCheck *HealthCheck `json:"health_check"`
 		// Set to remove the health check.
 		ClearHealthCheck bool `json:"clear_health_check"`
@@ -329,13 +340,18 @@ func (s *Server) handleUpdateService(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "service not found")
 		return
 	}
+	old := d.Spec
+	old.Services = append([]ServiceSpec(nil), d.Spec.Services...)
 	svc := &d.Spec.Services[idx]
-	wasPublic := svc.Public
+	wasPublic, wasLocal, oldPort := svc.Public, svc.LocalPort, svc.Port
 	if req.Public != nil {
 		svc.Public = *req.Public
 	}
 	if req.Port != nil {
 		svc.Port = *req.Port
+	}
+	if req.LocalPort != nil {
+		svc.LocalPort = *req.LocalPort
 	}
 	if req.HealthCheck != nil {
 		svc.HealthCheck = req.HealthCheck
@@ -344,6 +360,10 @@ func (s *Server) handleUpdateService(w http.ResponseWriter, r *http.Request) {
 		svc.HealthCheck = nil
 	}
 	if err := d.Spec.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.checkLocalPorts(r.Context(), d.AgentID, d.ID, old, d.Spec); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -369,7 +389,9 @@ func (s *Server) handleUpdateService(w http.ResponseWriter, r *http.Request) {
 		}[req.Access.Mode]
 		s.event(r.Context(), d.userID, "info", fmt.Sprintf(msg, d.Name, name), withDeployment(d))
 	}
-	needsRedeploy := (d.Type == TypeCompose && wasPublic != svc.Public) || req.HealthCheck != nil || req.ClearHealthCheck
+	// Host ports are set when a container is created.
+	localChanged := wasLocal != svc.LocalPort || (svc.LocalPort != 0 && oldPort != svc.Port)
+	needsRedeploy := (d.Type == TypeCompose && wasPublic != svc.Public) || localChanged || req.HealthCheck != nil || req.ClearHealthCheck
 	if needsRedeploy && d.Status != StatusStopped {
 		if _, err := s.deploy(r.Context(), d, d.Spec, "config", "", "", nil); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -382,6 +404,13 @@ func (s *Server) handleUpdateService(w http.ResponseWriter, r *http.Request) {
 			verb = "public"
 		}
 		s.event(r.Context(), d.userID, "info", fmt.Sprintf("%s / %s is now %s", d.Name, name, verb), withDeployment(d))
+	}
+	if wasLocal != svc.LocalPort {
+		msg := fmt.Sprintf("%s / %s is no longer reachable on the local network", d.Name, name)
+		if svc.LocalPort != 0 {
+			msg = fmt.Sprintf("%s / %s is reachable on the local network at port %d", d.Name, name, svc.LocalPort)
+		}
+		s.event(r.Context(), d.userID, "info", msg, withDeployment(d))
 	}
 	s.kickRoutes()
 	s.respondDeployment(w, r, d.ID)

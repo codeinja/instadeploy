@@ -219,6 +219,23 @@ export default function AgentsPage() {
                           ? "Connected to Pangolin"
                           : "Not configured"}
                       </dd>
+                      <dt className="text-muted-foreground">Local network</dt>
+                      <dd
+                        className="truncate"
+                        title={
+                          a.local_ports
+                            ? "Services can be published on this machine's ports"
+                            : "Start the agent with -e INSTA_DEPLOY_ALLOW_LOCAL_PORTS=true to allow it"
+                        }
+                      >
+                        {a.local_ports ? (
+                          <span className="font-mono text-xs">
+                            {a.local_address || "Allowed (address unknown)"}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">Off</span>
+                        )}
+                      </dd>
                       <dt className="text-muted-foreground">Agent</dt>
                       <dd className="text-muted-foreground">
                         v{a.agent_version}
